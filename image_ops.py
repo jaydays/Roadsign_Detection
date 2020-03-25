@@ -1,16 +1,9 @@
-import tensorflow as tf
-import tensorflow.contrib.keras as keras
-from tensorflow.python.keras.applications.inception_v3 import InceptionV3
-from tensorflow.contrib.keras import optimizers
-from tensorflow.python.keras.models import Model
 from tensorflow.python.keras.preprocessing import image
 from tensorflow.python.keras.preprocessing.image import Iterator, ImageDataGenerator
 import csv
 import os.path
 import numpy as np
 from tensorflow.python.keras import backend as K
-from scipy import linalg
-import scipy.ndimage as ndi
 from io import BytesIO
 from PIL import Image as pil_image
 import PIL.ImageOps
