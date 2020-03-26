@@ -633,7 +633,7 @@ class ImageFileListIterator(Iterator):
 
             for list_idx, row_idx in enumerate(relevant_indices):
                 filename = self.image_paths[row_idx][image_idx]
-                img = image.load_img(path=filename, target_size = self.image_size)
+                img = image.load_img(path=filename, target_size=self.image_size)
                 x = image.img_to_array(img, self.image_generator.data_format)
 
                 override_params = None

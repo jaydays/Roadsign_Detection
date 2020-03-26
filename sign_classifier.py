@@ -8,27 +8,29 @@ import os
 import shutil
 import random
 
+
 import tensorflow as tf
 import tensorflow.keras as keras
-from keras import optimizers, Input
-from keras import backend as K
-from keras.models import Sequential
-from keras.optimizers import Adam
-from keras.applications.inception_v3 import InceptionV3, preprocess_input
-from keras.layers import Dense, Conv2D, MaxPool2D, AveragePooling2D, Flatten, Dropout, BatchNormalization, Lambda
-from keras.models import Model
-from keras.models import load_model
-from keras.preprocessing import image
+
+from tensorflow.python.keras import optimizers
+from tensorflow.python.keras import backend as K
+from tensorflow.python.keras.models import Sequential
+from tensorflow.python.keras.optimizers import Adam
+from tensorflow.python.keras.applications.inception_v3 import preprocess_input
+from tensorflow.python.keras.layers import Dense, Conv2D, MaxPool2D, AveragePooling2D, Flatten, Dropout, BatchNormalization, Lambda, Input
+from tensorflow.python.keras.models import Model
+from tensorflow.python.keras.models import load_model
+from tensorflow.python.keras.preprocessing import image
+from PIL import Image as pil_image
 from tensorflow.core.example import example_pb2, feature_pb2
 from tensorflow.python.saved_model import builder as saved_model_builder
 from tensorflow.python.saved_model import tag_constants
 from tensorflow.python.saved_model.signature_def_utils_impl import predict_signature_def
 from sklearn.metrics import classification_report, confusion_matrix
-from PIL import Image as pil_image
 
 import image_ops as custom_image
 
-IM_PER_ROW = 2
+IM_PER_ROW = 1
 FINEGRAIN_EMBEDDING_NAME = "finegrain"
 COARSEGRAIN_EMBEDDING_NAME = "coarsegrain"
 
@@ -86,8 +88,15 @@ def accuracy(y_true, y_pred):
 
 
 def get_class_names():
-    # TODO: return the actual sign names
-    return list(range(1, 48))
+    class_names = ['addedLane', 'curveRight', 'dip', 'intersection', 'laneEnds', 'merge', 'pedestrianCrossing',
+                   'signalAhead', 'slow', 'stopAhead', 'thruMergeLeft', 'thruMergeRight', 'turnLeft', 'turnRight',
+                   'yieldAhead', 'doNotPass', 'keepRight', 'rightLaneMustTurn', 'speedLimit15', 'speedLimit25',
+                   'speedLimit30', 'speedLimit35', 'speedLimit40', 'speedLimit45', 'speedLimit50', 'speedLimit55',
+                   'speedLimit65', 'truckSpeedLimit55', 'speedLimit15', 'speedLimit25', 'speedLimit30', 'speedLimit35',
+                   'speedLimit40', 'speedLimit45', 'speedLimit50', 'speedLimit55', 'speedLimit65', 'speedLimitUrdbl',
+                   'speedLimit15', 'speedLimit25', 'speedLimit30', 'speedLimit35', 'speedLimit40', 'speedLimit45',
+                   'speedLimit50', 'speedLimit55', 'speedLimit65']
+    return class_names
 
 
 def get_csv_data(csv_path, has_header):
@@ -170,10 +179,20 @@ def build_model():
     # Output
     cnn.add(Dense(numCategories, activation='softmax'))
 
-    print(cnn.summary())
+    # # Convert sequential model into functional model
+    # input_layer = Input(shape=input_shape)
+    # prev_layer = input_layer
+    # for layer in cnn.layers:
+    #     layer._inbound_nodes = []
+    #     prev_layer = layer(prev_layer)
+    # func_model = Model([input_layer], [prev_layer])
+
+    model = cnn
+    print(model.summary())
+
     adam = Adam(lr=learning_rate)
-    cnn.compile(loss='categorical_crossentropy', optimizer=adam, metrics=['accuracy'])
-    return cnn
+    model.compile(loss='categorical_crossentropy', optimizer=adam, metrics=['accuracy'])
+    return model
 
 
 def build_new_siamese_model(output_finegrain, output_coarsegrain, finetune, reference_model_path=None, input_tensor=None):
@@ -365,7 +384,7 @@ def train(csv_path_train, csv_path_validation, model_dir, num_epochs, output_fin
     batches_per_epoch_validation = get_batches_per_epoch(csv_path_validation, True, batch_size)
     # TODO: sheck this
     num_workers = 9
-    use_multiprocessing = True
+    use_multiprocessing = False
 
     save_file_format = os.path.join(save_dir, start_mode + '.{epoch:02d}-{val_loss:.2f}.hdf5')
     logs_callback = [
@@ -377,13 +396,13 @@ def train(csv_path_train, csv_path_validation, model_dir, num_epochs, output_fin
 
     # Train the model
     model.fit_generator(
-        generator=image_generator.flow_from_csv(csv_path_train, ',', True, batch_size, False,
+        generator=image_generator.flow_from_csv(csv_path_train, ';', True, batch_size, False,
                                                 reweight_labels=True, num_target_instances=num_target_instances),
         steps_per_epoch=batches_per_epoch_train,
         epochs=num_epochs,
         verbose=1,
         callbacks=logs_callback,
-        validation_data=image_generator.flow_from_csv(csv_path_validation, ',', True, batch_size, True,
+        validation_data=image_generator.flow_from_csv(csv_path_validation, ';', True, batch_size, True,
                                                       reweight_labels=True, num_target_instances=num_target_instances),
         validation_steps=batches_per_epoch_validation,
         # max_queue_size=batches_per_epoch_train,
@@ -795,25 +814,33 @@ def get_files_with_prefix(directory, prefix):
     return file_paths
 
 
-def shuffle_split_file(input_path, output_path1, output_path2, split, has_header):
-    if os.path.isfile(output_path1):
-        os.remove(output_path1)
-    if os.path.isfile(output_path2):
-        os.remove(output_path2)
+def create_training_validation_csv(input_csv, training_csv, validation_csv, training_split, has_header):
+    if os.path.isfile(training_csv):
+        os.remove(training_csv)
+    if os.path.isfile(validation_csv):
+        os.remove(validation_csv)
 
-    with open(input_path, 'r') as f:
+    with open(input_csv, 'r') as f:
         lines = f.readlines()
 
+    header = None
     if has_header:
-        lines.pop(0)
+        header = lines.pop(0)
 
     random.seed(4)
     random.shuffle(lines)
-    split_index = int(len(lines)*split)
-    with open(output_path1, 'w') as f:
-        f.writelines(lines[:split_index])
-    with open(output_path2, 'w') as f:
-        f.writelines(lines[split_index:])
+    split_index = int(len(lines)*training_split)
+
+    training = lines[:split_index]
+    validation = lines[split_index:]
+    if header is not None:
+        training.insert(0, header)
+        validation.insert(0, header)
+
+    with open(training_csv, 'w') as f:
+        f.writelines(training)
+    with open(validation_csv, 'w') as f:
+        f.writelines(validation)
 
 
 def main():
@@ -857,7 +884,7 @@ def main():
     training_csv = os.path.join(os.path.dirname(annotations_csv), 'training.csv')
     validation_csv = os.path.join(os.path.dirname(annotations_csv), 'validation.csv')
     training_val_split = 0.8
-    shuffle_split_file(annotations_csv, training_csv, validation_csv, training_val_split, has_header=True)
+    create_training_validation_csv(annotations_csv, training_csv, validation_csv, training_val_split, has_header=True)
 
     # General parameters
     saved_models_dir = os.path.join(model_dir, 'saved_models')
