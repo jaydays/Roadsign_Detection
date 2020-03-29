@@ -71,7 +71,7 @@ class CustomImageDataGenerator(ImageDataGenerator):
         # random_transform_params['jpeg_quality'] = jpeg_quality
         return random_transform_params
 
-    def apply_transform(self, inp, override_params = None):
+    def apply_transform(self, inp, override_params=None):
         transform_params = self.get_random_transform_params(inp)
 
         if override_params is not None:
@@ -161,244 +161,6 @@ class CustomImageDataGenerator(ImageDataGenerator):
         out_file.close()
 
 
-    def parse_int(self, s):
-        val = literal_eval(s)
-        if isinstance(val, int) or (isinstance(val, float) and val.is_integer()):
-            return val, True
-        return 0, False
-
-    def parse_soft_categorical(self, label, label_delimiter):
-        fields = label.split(label_delimiter)
-        result = [float(s) for s in fields]
-        return result
-
-
-    def determine_label_types_and_dims(self, raw_labels, label_delimiter):
-        '''
-        Get a list of the label types in the csv, as well as max number of
-        classes if the type is categorical
-        :param csv_reader:
-        :param label_delimiter:
-        :return: a list of DataTypes for each label, and a list of max values for each label if it is one hot categorical
-        '''
-        types = []
-        label_dims = []
-        first_read = True
-        parsed_labels = []
-        for labels in raw_labels:
-            if first_read:
-                first_read = False
-                label_dims = [0 for _ in range(0, len(labels))]
-                types = [DataType.BINARY for _ in range(0, len(labels))]
-
-            parsed_row = []
-            for idx, label in enumerate(labels):
-
-                if len(label) == 0:
-                    # it's an unknown label
-                    parsed_row.append(None)
-                    continue
-
-                if types[idx] == DataType.SOFT_CATEGORICAL:
-                    parsed_row.append(self.parse_soft_categorical(label, label_delimiter))
-                    continue
-
-                is_int = False
-                if label_delimiter not in label:
-                    value, is_int = self.parse_int(label)
-                if is_int:
-                    if types[idx] == DataType.ONE_HOT_CATEGORICAL:
-                        label_dims[idx] = max(label_dims[idx], value+1)
-                    else:
-                        label_dims[idx] = max(label_dims[idx], value)
-                    if label_dims[idx] > 1 and types[idx] == DataType.BINARY:
-                        types[idx] = DataType.ONE_HOT_CATEGORICAL
-                        label_dims[idx] += 1
-                    parsed_row.append(value)
-                else:
-                    types[idx] = DataType.SOFT_CATEGORICAL
-                    label_dims[idx] = len(label.split(label_delimiter))
-                    parsed_row.append(self.parse_soft_categorical(label, label_delimiter))
-            parsed_labels.append(parsed_row)
-
-        return types, label_dims, parsed_labels
-
-
-    def get_paths_and_labels_from_csv_reader(self, csv_reader, image_root_dir, has_header, label_suffix, label_delimiter='|', unknown_label_value=-1):
-        '''
-        Get list of paths and labels from the given csv-format iterator
-        :param csv_reader: iterator over lists of values (image paths and their labels)
-        :param image_root_dir: root path for the image paths
-        :param has_header: if the csv_reader contains a header line
-        :param label_suffix: a suffix that labels should be appended with
-        :param label_delimiter: delimiter for an attr
-        :param unknown_label_value: for an unknown label, put this value
-        :return:
-        '''
-        num_labels = 0
-        first_read = True
-        im_per_row = self.im_per_row
-
-        class_labels = []
-        if has_header:
-            class_labels = next(csv_reader, None)[im_per_row:]
-            class_labels = [label + label_suffix for label in class_labels]
-
-        image_paths = []
-        image_string_labels = []
-
-        for row in csv_reader:
-            if len(row) == 0:
-                continue
-            image_paths.append(list(map(lambda s: os.path.join(image_root_dir, s), row[:im_per_row])))
-            label = [s for s in row[im_per_row:]]
-            if first_read:
-                first_read = False
-                num_labels = len(label)
-            if len(label) != num_labels:
-                print(row[:im_per_row])
-                raise ValueError("There are a different number of labels " + str(len(label)) + " " + str(num_labels))
-            image_string_labels.append(label)
-
-        # process the raw image labels into
-        # either multiple inputs or one input, and either
-        # binary or categorical data
-        # currently, we assume that the output will take the least number of bits to encode the label
-        # (e.g. a label that can be interpreted as binary will be interpreted as binary)
-        # TODO can extend to handle image labels or numerical data
-        label_types, label_dims, image_raw_labels = self.determine_label_types_and_dims(image_string_labels,
-                                                                                       label_delimiter)
-
-        #print(label_dims)
-        #print(class_labels)
-        image_labels = []
-
-        format_as_dict = has_header and num_labels > 1
-        if format_as_dict:
-            image_labels = {}
-
-        if num_labels > 1:
-            # append the labels as multiple arrays/outputs
-            for label_idx, label_dim in enumerate(label_dims):
-                if label_types[label_idx] == DataType.ONE_HOT_CATEGORICAL:
-                    if not format_as_dict:
-                        image_labels.append(np.zeros((len(image_raw_labels), label_dim)))
-                        for row_idx, labels in enumerate(image_raw_labels):
-                            if labels[label_idx] is None:
-                                image_labels[-1][row_idx] = [unknown_label_value for _ in range(0, label_dim)]
-                            else:
-                                image_labels[-1][row_idx, labels[label_idx]] = 1
-                    else:
-                        class_label = class_labels[label_idx]
-                        image_labels[class_label] = np.zeros((len(image_raw_labels), label_dim))
-                        for row_idx, labels in enumerate(image_raw_labels):
-                            if labels[label_idx] is None:
-                                image_labels[class_label][row_idx] = [unknown_label_value for _ in range(0, label_dim)]
-                            else:
-                                image_labels[class_label][row_idx, labels[label_idx]] = 1
-                else:
-                    if label_dim > 1:
-                        if not format_as_dict:
-                            image_labels.append(np.zeros((len(image_raw_labels), label_dim)))
-                            for row_idx, labels in enumerate(image_raw_labels):
-                                if labels[label_idx] is None:
-                                    image_labels[-1][row_idx] = [unknown_label_value for _ in range(0, label_dim)]
-                                else:
-                                    image_labels[-1][row_idx] = labels[label_idx]
-                        else:
-                            class_label = class_labels[label_idx]
-                            image_labels[class_label] = np.zeros((len(image_raw_labels), label_dim))
-                            for row_idx, labels in enumerate(image_raw_labels):
-                                if labels[label_idx] is None:
-                                    image_labels[class_labels[label_idx]][row_idx] = [unknown_label_value for _ in range(0, label_dim)]
-                                else:
-                                    image_labels[class_labels[label_idx]][row_idx] = labels[label_idx]
-                    else:
-                        if not format_as_dict:
-                            image_labels.append(np.zeros(len(image_raw_labels)))
-                            for row_idx, labels in enumerate(image_raw_labels):
-                                if labels[label_idx] is None:
-                                    image_labels[-1][row_idx] = unknown_label_value
-                                else:
-                                    image_labels[-1][row_idx] = labels[label_idx]
-                        else:
-                            class_label = class_labels[label_idx]
-                            image_labels[class_label] = np.zeros(len(image_raw_labels))
-                            for row_idx, labels in enumerate(image_raw_labels):
-                                if labels[label_idx] is None:
-                                    image_labels[class_labels[label_idx]][row_idx] = unknown_label_value
-                                elif isinstance(labels[label_idx], float) or isinstance(labels[label_idx], int):
-                                    image_labels[class_labels[label_idx]][row_idx] = labels[label_idx]
-                                else:
-                                    image_labels[class_labels[label_idx]][row_idx] = labels[label_idx][0] #TODOSHARON: look into how this occurs
-
-        else:
-            # there is only one label
-            label_start_indices = []
-            for label_idx, label_dim in enumerate(label_dims):
-                if label_idx == 0:
-                    label_start_indices.append(0)
-                else:
-                    label_start_indices.append(label_start_indices[-1] + label_dims[label_idx - 1])
-
-            label_total_dim = sum(label_dims)
-
-            image_labels = np.zeros((len(image_raw_labels), label_total_dim))
-
-            for row_idx, labels in enumerate(image_raw_labels):
-                for label_idx, start_idx in enumerate(label_start_indices):
-                    if label_types[label_idx] == DataType.ONE_HOT_CATEGORICAL:
-                        # categorical
-                        if labels[label_idx] is None:
-                            for d in range(0, label_dims[label_idx]):
-                                image_labels[row_idx, start_idx + d] = unknown_label_value
-                        else:
-                            image_labels[row_idx, start_idx + labels[label_idx]] = 1
-                    else:
-                        # binary / soft categorical
-                        if label_types[label_idx] == DataType.SOFT_CATEGORICAL:
-                            for i in range(0, label_dims[label_idx]):
-                                if labels[label_idx] is None:
-                                    image_labels[row_idx, start_idx + i] = unknown_label_value
-                                else:
-                                    image_labels[row_idx, start_idx + i] = labels[label_idx][i]
-                        else:
-                            if labels[label_idx] is None:
-                                image_labels[row_idx, start_idx] = unknown_label_value
-                            else:
-                                image_labels[row_idx, start_idx] = labels[label_idx]
-
-            if image_labels.shape[1] == 1:
-                image_labels = np.reshape(image_labels, image_labels.shape[0])
-
-            image_labels = [image_labels]
-
-        formatted_label_types = label_types
-        if format_as_dict:
-            formatted_label_types = {}
-            for label_idx, label in enumerate(class_labels):
-                formatted_label_types[label] = label_types[label_idx]
-
-        return image_paths, image_labels, formatted_label_types
-
-    def get_paths_and_labels_from_csv(self, csv_path, delimiter=',', has_header=True, label_suffix='', label_delimiter='|', unknown_label_value=-1):
-        '''
-        Read the paths and labels from the given csv file
-        Return the ordered list of paths and labels
-        :param csv_path: path to the csv file
-        :param delimiter: delimiter used in the csv file
-        :param has_header: whether the csv file has a header
-        :param label_suffix: a suffix that should be appended to the label (only applies if there is a header)
-        :param unknown_label_value: for an unknown label, put this value
-        :return:
-        '''
-
-        with open(csv_path, newline='') as csv_file:
-            # get the directory path of the csv file
-            reader = csv.reader(csv_file, delimiter=delimiter)
-            dir_path = os.path.dirname(csv_path)
-            return self.get_paths_and_labels_from_csv_reader(reader, dir_path, has_header, label_suffix, label_delimiter, unknown_label_value)
-
     def flow_from_csv(self, csv_path, delimiter=',', has_header=True, batch_size=32, shuffle=True, save_to_dir=None,
                       save_prefix='', save_format='png', label_suffix='', label_delimiter='|', unknown_label_value=-1,
                       reweight_labels=False, num_target_instances=1):
@@ -443,6 +205,45 @@ class CustomImageDataGenerator(ImageDataGenerator):
                                      num_target_instances)
 
 
+    # TODO: rename since it doesn't involve a csv now
+    def flow_from_csv(self, image_paths, image_labels, label_types, batch_size=32, shuffle=True, save_to_dir=None,
+                      save_prefix='', save_format='png', unknown_label_value=-1,
+                      reweight_labels=False, num_target_instances=1):
+
+        """
+        :param image_paths: list of image paths
+        :param image_labels: labels associated with images
+        :param label_types: TODO??
+        :param batch_size: batch size to iterate over
+        :param shuffle: whether or not to shuffle the input after every full iteration
+        :param save_to_dir: if not None, save transformed images to this directory
+        :param save_prefix: prefix saved image filenames with this
+        :param save_format: save images with this file format
+        :param label_suffix: append this suffix to image labels (only matters if there is a header)
+        :param label_delimiter: delimiter within each attribute
+        :param unknown_label_value: for an unknown label value, put this value
+        :param reweight_labels: reweight target labels dependant on their frequency
+        :param num_target_instances: number of instances of target data in batch output, used if multiple outputs expect same target data
+        :return: an iterator over dynamically augmented images and their labels
+        """
+
+        return ImageFileListIterator(image_paths,
+                                     image_labels,
+                                     batch_size,
+                                     shuffle,
+                                     self.seed,
+                                     self,
+                                     self.image_size,
+                                     save_to_dir,
+                                     save_prefix,
+                                     save_format,
+                                     self.im_per_row,
+                                     label_types,
+                                     unknown_label_value,
+                                     reweight_labels,
+                                     num_target_instances)
+
+
 class ImageFileListIterator(Iterator):
 
     def __init__(self,
@@ -457,7 +258,7 @@ class ImageFileListIterator(Iterator):
                  save_prefix,
                  save_format,
                  im_per_row,
-                 label_types = None,
+                 label_types=None,
                  unknown_label_value=-1,
                  reweight_labels=False,
                  num_target_instances=1):
@@ -527,51 +328,35 @@ class ImageFileListIterator(Iterator):
             self.value_order = [k for k in self.value_to_indices]
 
     def determine_sample_weights(self):
-        sample_weights = {}
+        # Calculate counts for each classification found
+        key_counts = {}
+        for label in self.image_labels:
+            #label = self.image_labels[im_index] # TODO: check dimension of list, this assumes 1 dimension right now
+            if len(label.shape) >= 1:
+                key = np.argmax(label)
+            else:
+                key = 0 if label < 0.5 else 1
 
-        keys = []
-        if isinstance(self.image_labels, list):
-            sample_weights = [0 for _ in range(0, len(self.image_labels))]
-            keys = range(0, len(self.image_labels))
-        else:
-            # it's a dictionary
-            keys = [k for k in self.image_labels]
+            if key not in key_counts:
+                key_counts[key] = 0
+            key_counts[key] += 1
 
-        # map label name -> label value -> count
-        label_to_value_to_counts = {}
-        for key in keys:
-            label_to_value_to_counts[key] = {}
+        # Calculate classification weights
+        num_labels = len(self.image_labels)
+        key_weights = {k: num_labels/v for k, v in key_counts.items()}
+        min_weight = min(key_weights.values())
+        key_weights = {k: v/min_weight for k, v in key_weights.items()}
 
-            for array in self.image_labels[key]:
-                if np.all(array == self.unknown_label_value):
-                    continue
-                if len(array.shape) >= 1:
-                    value = np.argmax(array)
-                else:
-                    if array < 0.5:
-                        value = 0
-                    else:
-                        value = 1
-                if value not in label_to_value_to_counts[key]:
-                    label_to_value_to_counts[key][value] = 0
-                label_to_value_to_counts[key][value] += 1
+        # Create weight for each label
+        sample_weights = np.zeros(num_labels)
+        for idx, label in enumerate(self.image_labels):
+            if len(label.shape) >= 1:
+                key = np.argmax(label)
+            else:
+                key = 0 if label < 0.5 else 1
 
-        for key in keys:
-            total = sum([label_to_value_to_counts[key][value] for value in label_to_value_to_counts[key]])
-            sample_weights[key] = np.zeros(len(self.image_labels[key]))
-            for idx, array in enumerate(self.image_labels[key]):
-                if np.all(array == self.unknown_label_value):
-                    sample_weights[key][idx] = K.epsilon()
-                else:
-                    if len(array.shape) >= 1:
-                        value = np.argmax(array)
-                    else:
-                        if array < 0.5:
-                            value = 0
-                        else:
-                            value = 1
-                    weight = total / label_to_value_to_counts[key][value]
-                    sample_weights[key][idx] = weight
+            sample_weights[idx] = key_weights[key]
+
         return sample_weights
 
 
@@ -601,83 +386,40 @@ class ImageFileListIterator(Iterator):
 
     def _get_batches_of_transformed_samples(self, index_array):
         batch_x = []
-        batch_y = None
-        sample_weights = []
 
         relevant_indices = index_array
-        """if self.partition_value is not None:
-            relevant_indices = []
+        batch_y = [self.image_labels[i] for i in relevant_indices]
+        sample_weights = self.sample_weights[relevant_indices]
 
-            # for each partition, choose n random indices
-            for i in range(0, len(index_array)):
-                value = self.value_order[index_array[i]]
-                partition_indices = self.value_to_indices[value]
-                sample = partition_indices
-                if len(sample) > self.num_per_partition:
-                    sample = np.random.choice(partition_indices, self.num_per_partition, replace=False)
-                relevant_indices.extend(sample)"""
+        b_x = np.zeros((len(relevant_indices),) + self.image_size + (3,), dtype=K.floatx())
+        for list_idx, row_idx in enumerate(relevant_indices):
+            filename = self.image_paths[row_idx]
+            img = image.load_img(path=filename, target_size=self.image_size)
+            x = image.img_to_array(img, self.image_generator.data_format)
 
-        if isinstance(self.image_labels, dict):
-            batch_y = {}
-            sample_weights = {}
-            for label_name in self.image_labels.keys():
-                batch_y[label_name] = self.image_labels[label_name][relevant_indices]
-                sample_weights[label_name] = self.sample_weights[label_name][relevant_indices]
-        else:
-            batch_y = [self.image_labels[i][relevant_indices] for i in range(0, len(self.image_labels))]
-            sample_weights = [self.sample_weights[i][relevant_indices] for i in range(0, len(self.image_labels))]
+            # TODO: can get rid of override param functionality
+            transform_params = self.image_generator.get_random_transform_params(x, None)
+            x = self.image_generator.apply_transform(x, transform_params)
+            x = self.image_generator.standardize(x)
+            b_x[list_idx] = x
 
-        row_transform_params = dict()
-        for image_idx in range(self.im_per_row):
-            b_x = np.zeros((len(relevant_indices),) + self.image_size + (3,), dtype=K.floatx())
-
-            for list_idx, row_idx in enumerate(relevant_indices):
-                filename = self.image_paths[row_idx][image_idx]
-                img = image.load_img(path=filename, target_size=self.image_size)
-                x = image.img_to_array(img, self.image_generator.data_format)
-
-                override_params = None
-                if self.im_per_row > 1:
-                    if row_idx in row_transform_params:
-                        override_params = row_transform_params[row_idx]
-                    else:
-                        override_params = self.image_generator.get_random_transform_params(x, None)
-                        override_params.pop('channel_shift_intensity') # Want unique channel shift intensity for images in a row
-                        row_transform_params[row_idx] = override_params
-
-                x = self.image_generator.apply_transform(x, override_params)
-                x = self.image_generator.standardize(x)
-                b_x[list_idx] = x
-
-                if self.save_to_dir:
-                    img = image.array_to_img(x, scale=True)
-                    fname = '{prefix}_{index}_{im_index}_{hash}.{format}'.format(prefix=self.save_prefix,
-                                                                      index=row_idx,
-                                                                      im_index=image_idx,
-                                                                      hash=np.random.randint(1e4),
-                                                                      format=self.save_format)
-                    img.save(os.path.join(self.save_to_dir, fname))
+            if self.save_to_dir:
+                img = image.array_to_img(x, scale=True)
+                fname = '{prefix}_{index}_{hash}.{format}'.format(prefix=self.save_prefix,
+                                                                  index=row_idx,
+                                                                  hash=np.random.randint(1e4),
+                                                                  format=self.save_format)
+                img.save(os.path.join(self.save_to_dir, fname))
             if hasattr(img, 'close'):
                 img.close()
             batch_x.append(b_x)
 
-        if self.im_per_row == 1:
-            batch_x = batch_x[0]
-
-        # Duplicate batch output data if applicable
-        if isinstance(batch_y, dict):
-            batch_y_out = batch_y
-            sample_weights_out = sample_weights
-        else:
-            batch_y_out = []
-            sample_weights_out = []
-            for i in range(0, self.num_target_instances):
-                for j in range(0, len(batch_y)):
-                    batch_y_out.append(batch_y[j])
-                    sample_weights_out.append(sample_weights[j])
+        batch_y_out = []
+        for i in range(0, self.num_target_instances):
+                batch_y_out.append(batch_y)
 
         if self.reweight_labels:
-            return batch_x, batch_y_out, sample_weights_out
+            return batch_x, batch_y_out, sample_weights
 
         return batch_x, batch_y_out
 

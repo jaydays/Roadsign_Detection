@@ -29,6 +29,7 @@ from tensorflow.python.saved_model.signature_def_utils_impl import predict_signa
 from sklearn.metrics import classification_report, confusion_matrix
 
 import image_ops as custom_image
+import numpy as np
 
 IM_PER_ROW = 1
 FINEGRAIN_EMBEDDING_NAME = "finegrain"
@@ -88,14 +89,19 @@ def accuracy(y_true, y_pred):
 
 
 def get_class_names():
-    class_names = ['addedLane', 'curveRight', 'dip', 'intersection', 'laneEnds', 'merge', 'pedestrianCrossing',
-                   'signalAhead', 'slow', 'stopAhead', 'thruMergeLeft', 'thruMergeRight', 'turnLeft', 'turnRight',
-                   'yieldAhead', 'doNotPass', 'keepRight', 'rightLaneMustTurn', 'speedLimit15', 'speedLimit25',
-                   'speedLimit30', 'speedLimit35', 'speedLimit40', 'speedLimit45', 'speedLimit50', 'speedLimit55',
-                   'speedLimit65', 'truckSpeedLimit55', 'speedLimit15', 'speedLimit25', 'speedLimit30', 'speedLimit35',
-                   'speedLimit40', 'speedLimit45', 'speedLimit50', 'speedLimit55', 'speedLimit65', 'speedLimitUrdbl',
+    class_names = ['addedLane', 'curveLeft', 'curveRight', 'dip', 'doNotEnter', 'doNotPass', 'intersection',
+                   'keepRight', 'laneEnds',
+                   'merge', 'noLeftTurn', 'noRightTurn', 'pedestrianCrossing', 'rampSpeedAdvisory20',
+                   'rampSpeedAdvisory35', 'rampSpeedAdvisory40', 'rampSpeedAdvisory45', 'rampSpeedAdvisory50',
+                   'rampSpeedAdvisoryUrdbl', 'rightLaneMustTurn', 'roundabout', 'school', 'schoolSpeedLimit25',
+                   'signalAhead', 'slow', 'speedLimit15', 'speedLimit25', 'speedLimit30', 'speedLimit35',
+                   'speedLimit40', 'speedLimit45', 'speedLimit50', 'speedLimit55', 'speedLimit65', 'truckSpeedLimit55',
                    'speedLimit15', 'speedLimit25', 'speedLimit30', 'speedLimit35', 'speedLimit40', 'speedLimit45',
-                   'speedLimit50', 'speedLimit55', 'speedLimit65']
+                   'speedLimit50', 'speedLimit55', 'speedLimit65', 'speedLimitUrdbl', 'speedLimit15', 'speedLimit25',
+                   'speedLimit30', 'speedLimit35', 'speedLimit40', 'speedLimit45', 'speedLimit50', 'speedLimit55',
+                   'speedLimit65', 'speedLimitUrdbl', 'stop', 'stopAhead', 'thruMergeLeft', 'thruMergeRight',
+                   'thruTrafficMergeLeft', 'truckSpeedLimit55', 'turnLeft', 'turnRight', 'yield', 'yieldAhead',
+                   'zoneAhead25', 'zoneAhead45']
     return class_names
 
 
@@ -138,7 +144,7 @@ def set_model_trainability(model, trainability, ignore_layers=None):
 def build_model():
     numCategories = len(get_class_names())
     learning_rate = 0.001
-    input_shape = (32, 32, 3)
+    input_shape = (299, 299, 3)
     cnn = Sequential()
 
     # Convolutional Layers
@@ -321,8 +327,7 @@ def get_last_checkpoint(saved_model_dir, file_prefix):
     return os.path.join(saved_model_dir, file_names[epochs.index(last_epoch)]), last_epoch
 
 
-def train(csv_path_train, csv_path_validation, model_dir, num_epochs, output_finegrain, output_coarsegrain,
-          finetune=False, initial_model_path=None):
+def train(csv_path_train, csv_path_validation, images_dir, model_dir, num_epochs, finetune=False, initial_model_path=None):
     """
     Build and train a siamese neural network with specified outputs
     :param csv_path: csv filepath that contains annotated data
@@ -382,7 +387,7 @@ def train(csv_path_train, csv_path_validation, model_dir, num_epochs, output_fin
     batch_size = int(32 / IM_PER_ROW)
     batches_per_epoch_train = get_batches_per_epoch(csv_path_train, True, batch_size)
     batches_per_epoch_validation = get_batches_per_epoch(csv_path_validation, True, batch_size)
-    # TODO: sheck this
+    # TODO: check this
     num_workers = 9
     use_multiprocessing = False
 
@@ -394,21 +399,51 @@ def train(csv_path_train, csv_path_validation, model_dir, num_epochs, output_fin
     # The number of target instances must equal the number of output layers
     num_target_instances = len(model.outputs)
 
+    paths_train, labels_train = get_paths_and_labels_from_csv(csv_path_train, images_dir)
+    paths_val, labels_val = get_paths_and_labels_from_csv(csv_path_train, images_dir)
+
     # Train the model
     model.fit_generator(
-        generator=image_generator.flow_from_csv(csv_path_train, ';', True, batch_size, False,
+        generator=image_generator.flow_from_csv(paths_train, labels_train, None, batch_size, False,
                                                 reweight_labels=True, num_target_instances=num_target_instances),
         steps_per_epoch=batches_per_epoch_train,
         epochs=num_epochs,
         verbose=1,
         callbacks=logs_callback,
-        validation_data=image_generator.flow_from_csv(csv_path_validation, ';', True, batch_size, True,
+        validation_data=image_generator.flow_from_csv(paths_val, labels_val, None, batch_size, False,
                                                       reweight_labels=True, num_target_instances=num_target_instances),
         validation_steps=batches_per_epoch_validation,
         # max_queue_size=batches_per_epoch_train,
         workers=num_workers,
         use_multiprocessing=use_multiprocessing,
         initial_epoch=start_epoch)
+
+
+def get_paths_and_labels_from_csv(csv_path, image_root_dir, delimiter=';', has_header=True):
+    class_names = get_class_names()
+    num_classes = len(class_names)
+
+    image_paths = []
+    image_labels = []
+    with open(csv_path, newline='') as csv_file:
+        # get the directory path of the csv file
+        csv_reader = csv.reader(csv_file, delimiter=delimiter)
+
+        first_read = True
+        for row in csv_reader:
+            if has_header and first_read:
+                first_read = False
+                continue
+            if len(row) == 0:
+                continue
+            image_paths.append(os.path.join(image_root_dir, row[0]))
+            sign_type = row[1]
+            sign_index = class_names.index(sign_type)
+            sign_one_hot = np.zeros(num_classes)
+            sign_one_hot[sign_index] = 1
+            image_labels.append(sign_one_hot)
+
+    return image_paths, image_labels
 
 
 def get_batches_per_epoch(csv_path, has_header, batch_size):
@@ -896,8 +931,7 @@ def main():
 
     # Train model
     num_epochs = 6
-    train(training_csv, validation_csv, model_dir, num_epochs, output_finegrain, output_coarsegrain,
-          finetune=finetune, initial_model_path=saved_model)
+    train(training_csv, validation_csv, images_dir, model_dir, num_epochs, finetune=finetune, initial_model_path=saved_model)
 
     # Test model
     csv_path_test = '/storage/Images/prod_var_groupings/dataset/test-even.txt'
