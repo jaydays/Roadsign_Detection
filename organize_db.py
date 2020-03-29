@@ -12,6 +12,7 @@ original_db_path = os.path.join(curDir, "signDatabasePublicFramesOnly")
 
 dataFolder = "Data"
 newAnnotationFile = "annotations.csv"
+newAnnotationFile_class = "annotation_class.csv"
 oldAnnotationFile = "allAnnotations.csv"  # "testAnnotations.csv"
 semiColon = ";"
 
@@ -31,6 +32,7 @@ csv = csv.readlines()
 csv.sort()
 
 allAnnotations = []
+allAnnotationsClass = []
 
 basePath = new_db_path
 savePath = os.path.join(basePath, dataFolder)
@@ -47,10 +49,15 @@ maxNumSigns = 0
 for line in csv:
     fields = line.split(";")
 
+    newFile = fields[0][fields[0].rfind("/") + 1:]
+    selectedElements = [newFile, fields[1], fields[2], fields[3], fields[4], fields[5]]
+    newLine = "\n" + semiColon.join(selectedElements)
+    allAnnotationsClass.append(newLine)
+
     if previousFile != fields[0]:
-        newFile = fields[0][fields[0].rfind("/") + 1:]
-        selectedElements = [newFile, fields[1], fields[2], fields[3], fields[4], fields[5]]
-        newLine = "\n" + semiColon.join(selectedElements)
+        #newFile = fields[0][fields[0].rfind("/") + 1:]
+        #selectedElements = [newFile, fields[1], fields[2], fields[3], fields[4], fields[5]]
+        #newLine = "\n" + semiColon.join(selectedElements)
         allAnnotations.append(newLine)
         numSigns = 1
         shutil.copy(os.path.join(original_db_path, fields[0]), savePath)
@@ -72,6 +79,12 @@ out = open(os.path.join(basePath, newAnnotationFile), 'w')
 out.write(header)
 out.writelines(allAnnotations)
 out.close()
+
+outClass = open(os.path.join(basePath, newAnnotationFile_class), 'w')
+
+outClass.write(header)
+outClass.writelines(allAnnotationsClass)
+outClass.close()
 
 print(maxNumSigns)
 print("Done. Processed %d annotations." % (counter + 1))
