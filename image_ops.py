@@ -34,7 +34,7 @@ class CustomImageDataGenerator(ImageDataGenerator):
                  preprocessing_function,
                  image_size,
                  seed,
-                 #siamese networks would have 2 images per row
+                 # siamese networks would have 2 images per row
                  im_per_row=1,
                  make_grayscale=True,
                  shift_hue=False,
@@ -103,17 +103,16 @@ class CustomImageDataGenerator(ImageDataGenerator):
             result = image.img_to_array(img)
             buffer.close()
 
-        if not greyscale and self.shift_hue and np.random.random()  <= 0.1:
+        if not greyscale and self.shift_hue and np.random.random() <= 0.1:
             result = self.rotate_hue(result, np.random.randint(0, 359))
 
-        if self.invert_colours and np.random.random()  <= 0.1:
+        if self.invert_colours and np.random.random() <= 0.1:
             # invert image colours
             img = image.array_to_img(result)
             img = PIL.ImageOps.invert(img)
             result = image.img_to_array(img)
 
         return result
-
 
     def rotate_hue(self, img, degrees):
         # This is ~400x faster than doing it with pseudocode!
@@ -132,7 +131,6 @@ class CustomImageDataGenerator(ImageDataGenerator):
         rot_pixel_array = rot_rgb_arrays.T
         rot_image = rot_pixel_array.reshape(im_length, im_width, 3)
         return rot_image
-
 
     def get_hue_rotation_matrix(self, degrees):
         matrix = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
@@ -163,7 +161,7 @@ class CustomImageDataGenerator(ImageDataGenerator):
 
     def flow_from_csv(self, csv_path, delimiter=',', has_header=True, batch_size=32, shuffle=True, save_to_dir=None,
                       save_prefix='', save_format='png', label_suffix='', label_delimiter='|', unknown_label_value=-1,
-                      reweight_labels=False, num_target_instances=1):
+                      reweight_labels=False, num_target_instances=1, label_bounds=None):
 
         """
         :param csv_path: path to csv file to read, with image paths and their label(s). labels must be integer values.
@@ -182,33 +180,28 @@ class CustomImageDataGenerator(ImageDataGenerator):
         :return: an iterator over dynamically augmented images and their labels
         """
         image_paths, image_labels, label_types = self.get_paths_and_labels_from_csv(csv_path,
-                                                                       delimiter,
-                                                                       has_header,
-                                                                       label_suffix,
-                                                                       label_delimiter,
-                                                                       unknown_label_value)
+                                                                                    delimiter,
+                                                                                    has_header,
+                                                                                    label_suffix,
+                                                                                    label_delimiter,
+                                                                                    unknown_label_value)
 
-        return ImageFileListIterator(image_paths,
-                                     image_labels,
-                                     batch_size,
-                                     shuffle,
-                                     self.seed,
-                                     self,
-                                     self.image_size,
-                                     save_to_dir,
-                                     save_prefix,
-                                     save_format,
-                                     self.im_per_row,
-                                     label_types,
-                                     unknown_label_value,
-                                     reweight_labels,
-                                     num_target_instances)
+        return self.flow_from_iterator(image_paths,
+                                       image_labels,
+                                       label_types,
+                                       batch_size,
+                                       shuffle,
+                                       save_to_dir,
+                                       save_prefix,
+                                       save_format,
+                                       unknown_label_value,
+                                       reweight_labels,
+                                       num_target_instances,
+                                       label_bounds)
 
-
-    # TODO: rename since it doesn't involve a csv now
-    def flow_from_csv(self, image_paths, image_labels, label_types, batch_size=32, shuffle=True, save_to_dir=None,
-                      save_prefix='', save_format='png', unknown_label_value=-1,
-                      reweight_labels=False, num_target_instances=1):
+    def flow_from_iterator(self, image_paths, image_labels, label_types, batch_size=32, shuffle=True, save_to_dir=None,
+                           save_prefix='', save_format='png', unknown_label_value=-1,
+                           reweight_labels=False, num_target_instances=1, label_bounds=None):
 
         """
         :param image_paths: list of image paths
@@ -241,7 +234,8 @@ class CustomImageDataGenerator(ImageDataGenerator):
                                      label_types,
                                      unknown_label_value,
                                      reweight_labels,
-                                     num_target_instances)
+                                     num_target_instances,
+                                     label_bounds)
 
 
 class ImageFileListIterator(Iterator):
@@ -261,7 +255,8 @@ class ImageFileListIterator(Iterator):
                  label_types=None,
                  unknown_label_value=-1,
                  reweight_labels=False,
-                 num_target_instances=1):
+                 num_target_instances=1,
+                 label_bounds=None):
 
         """
         :param image_paths: matrix of image paths. one column for each input
@@ -277,13 +272,13 @@ class ImageFileListIterator(Iterator):
         :param num_target_instances: number of instances of target data in batch output, used if multiple outputs expect same target data
         """
 
-        #self.partition_value = partition_value
-        #self.num_per_partition = num_per_partition
+        # self.partition_value = partition_value
+        # self.num_per_partition = num_per_partition
         self.length = len(image_paths)
         self.image_paths = image_paths
         self.image_labels = image_labels
         self.unknown_label_value = unknown_label_value
-        #self._partition_labels()
+        # self._partition_labels()
 
         super().__init__(self.length,
                          batch_size,
@@ -304,6 +299,7 @@ class ImageFileListIterator(Iterator):
             self._strip_unknown_labels()
 
         self.num_target_instances = num_target_instances
+        self.label_bounds = label_bounds
 
     def _partition_labels(self):
         self.value_order = []
@@ -331,7 +327,7 @@ class ImageFileListIterator(Iterator):
         # Calculate counts for each classification found
         key_counts = {}
         for label in self.image_labels:
-            #label = self.image_labels[im_index] # TODO: check dimension of list, this assumes 1 dimension right now
+            # label = self.image_labels[im_index] # TODO: check dimension of list, this assumes 1 dimension right now
             if len(label.shape) >= 1:
                 key = np.argmax(label)
             else:
@@ -343,9 +339,9 @@ class ImageFileListIterator(Iterator):
 
         # Calculate classification weights
         num_labels = len(self.image_labels)
-        key_weights = {k: num_labels/v for k, v in key_counts.items()}
+        key_weights = {k: num_labels / v for k, v in key_counts.items()}
         min_weight = min(key_weights.values())
-        key_weights = {k: v/min_weight for k, v in key_weights.items()}
+        key_weights = {k: v / min_weight for k, v in key_weights.items()}
 
         # Create weight for each label
         sample_weights = np.zeros(num_labels)
@@ -359,7 +355,7 @@ class ImageFileListIterator(Iterator):
 
         return sample_weights
 
-
+    # TODO: remove these functions?
     def _strip_unknown_label(self, label):
         if np.all(label == self.unknown_label_value):
             if isinstance(label, np.float64):
@@ -370,6 +366,12 @@ class ImageFileListIterator(Iterator):
         else:
             return label
 
+    def crop_img(self, img, bounds):  #TODO: remove
+        left = bounds[0]
+        top = bounds[1]
+        right = bounds[2]
+        bottom = bounds[3]
+        return img[top:bottom, left:right, :]
 
     def _strip_unknown_labels(self):
         # strip unknown labels from image labels
@@ -394,7 +396,14 @@ class ImageFileListIterator(Iterator):
         b_x = np.zeros((len(relevant_indices),) + self.image_size + (3,), dtype=K.floatx())
         for list_idx, row_idx in enumerate(relevant_indices):
             filename = self.image_paths[row_idx]
-            img = image.load_img(path=filename, target_size=self.image_size)
+            resample = pil_image.BICUBIC
+            if self.label_bounds is not None:
+                img = image.load_img(path=filename)
+                img = img.crop(tuple(self.label_bounds[row_idx]))
+                img = img.resize(self.image_size, resample=resample)
+            else:
+                img = image.load_img(path=filename, target_size=self.image_size) #TODO: add proper interpolation here
+
             x = image.img_to_array(img, self.image_generator.data_format)
 
             # TODO: can get rid of override param functionality
@@ -405,8 +414,9 @@ class ImageFileListIterator(Iterator):
 
             if self.save_to_dir:
                 img = image.array_to_img(x, scale=True)
-                fname = '{prefix}_{index}_{hash}.{format}'.format(prefix=self.save_prefix,
+                fname = '{prefix}_{index}_{sampling}_{hash}.{format}'.format(prefix=self.save_prefix,
                                                                   index=row_idx,
+                                                                  sampling=resample,
                                                                   hash=np.random.randint(1e4),
                                                                   format=self.save_format)
                 img.save(os.path.join(self.save_to_dir, fname))
@@ -416,7 +426,7 @@ class ImageFileListIterator(Iterator):
 
         batch_y_out = []
         for i in range(0, self.num_target_instances):
-                batch_y_out.append(batch_y)
+            batch_y_out.append(batch_y)
 
         if self.reweight_labels:
             return batch_x, batch_y_out, sample_weights
