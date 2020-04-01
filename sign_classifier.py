@@ -21,8 +21,9 @@ import image_ops as custom_image
 import numpy as np
 
 IM_PER_ROW = 1  # TODO: get rid of this
-INPUT_SIZE = (100, 100)
+IM_SIZE = (100, 100)
 INPUT_SHAPE = (100, 100, 3)
+UNKNOWN_CLASS_NUM = -1
 
 
 def build_model():
@@ -176,16 +177,11 @@ def get_data_from_csv(csv_path, image_root_dir, delimiter=';', has_header=True):
                 continue
             image_paths.append(os.path.join(image_root_dir, row[0]))
 
-            sign_type = row[1]
-            sign_index = class_names.index(sign_type)
-            sign_one_hot = np.zeros(num_classes)
-            sign_one_hot[sign_index] = 1
+            sign_class = row[1]
+            class_index = class_names.index(sign_class)
+            sign_one_hot = class_num_to_one_hot(class_index, num_classes)
             image_labels.append(sign_one_hot)
 
-            left = row[2]
-            top = row[3]
-            right = row[4]
-            bottom = row[5]
             bounds = list(map(int, row[2:6]))
             label_bounds.append(bounds)
 
@@ -254,13 +250,13 @@ def train(csv_path_train, csv_path_validation, images_dir, model_dir, num_epochs
     if vary_images:
         image_generator = custom_image.CustomImageDataGenerator(10, 0.05, 0.05, 0.1, 0.1, 40,
                                                                 'nearest', 0, False, False, False,
-                                                                preprocess_input, INPUT_SIZE, 1,
+                                                                preprocess_input, IM_SIZE, 1,
                                                                 shift_hue=True, invert_colours=True)
     else:
         shift_hue = False
         image_generator = custom_image.CustomImageDataGenerator(0, 0, 0, 0, 0, 0,
                                                                 'nearest', 0, False, False, False,
-                                                                preprocess_input, INPUT_SIZE, 1,
+                                                                preprocess_input, IM_SIZE, 1,
                                                                 shift_hue=shift_hue, invert_colours=False)
 
     # Initialize other training params
@@ -303,7 +299,7 @@ def train(csv_path_train, csv_path_validation, images_dir, model_dir, num_epochs
         initial_epoch=start_epoch)
 
 
-def test_keras_model(model, csv_path_test, incorrect_pred_dir, vary_images=False, save_im_dir=None):
+def test_keras_model(model, csv_path_test, images_dir, incorrect_pred_dir, vary_images=False, save_im_dir=None):
     """
     Test a keras model and print incorrect predictions to files ina  directory
     :param model: model to test
@@ -316,43 +312,32 @@ def test_keras_model(model, csv_path_test, incorrect_pred_dir, vary_images=False
     if vary_images:
         image_generator = custom_image.CustomImageDataGenerator(10, 0.05, 0.05, 0.1, 0.1, 40,
                                                                 'nearest', 0, False, False, False,
-                                                                preprocess_input, (299, 299), 1,
+                                                                preprocess_input, IM_SIZE, 1,
                                                                 im_per_row=IM_PER_ROW, shift_hue=True,
                                                                 invert_colours=True)
     else:
         image_generator = custom_image.CustomImageDataGenerator(0, 0, 0, 0, 0, 0,
                                                                 'nearest', 0, False, False, False,
-                                                                preprocess_input, (299, 299), 1,
+                                                                preprocess_input, IM_SIZE, 1,
                                                                 im_per_row=IM_PER_ROW, shift_hue=False,
                                                                 invert_colours=False)
 
+    paths_test, labels_test, bounds_test = get_data_from_csv(csv_path_test, images_dir)
     predictions = model.predict_generator(
-        generator=image_generator.flow_from_csv(csv_path_test, ',', True, batch_size, False, reweight_labels=False,
-                                                save_to_dir= save_im_dir,
-                                                save_prefix='save', save_format='jpg'),
+        generator=image_generator.flow_from_iterator(paths_test, labels_test, None, batch_size, False,
+                                                     reweight_labels=False, save_to_dir=None,
+                                                     num_target_instances=1, label_bounds=bounds_test),
         workers=9,
-        use_multiprocessing=True,
+        use_multiprocessing=False,
         verbose=1)
 
-    # Normalize predictions data structure for different number of outputs
-    if len(model.outputs) > 1:
-        prediction_sets = predictions
-    else:
-        prediction_sets = [predictions]
+    y_true = [one_hot_to_class_num(label) for label in labels_test]
+    y_pred = [one_hot_to_class_num(prediction) for prediction in predictions]
 
-    distance_output_sets = list()
-    for prediction_set in prediction_sets:
-        distance_set = []
-        for prediction in prediction_set:
-            euc_distance = prediction[0]
-            distance_set.append(euc_distance)
-
-        distance_output_sets.append(distance_set)
-
-    print_test_result(csv_path_test, incorrect_pred_dir, distance_output_sets)
+    print_test_result(incorrect_pred_dir, paths_test, y_true, y_pred)
 
 
-def print_test_result(csv_path_test, incorrect_pred_dir, distance_output_sets):
+def print_test_result(incorrect_pred_dir, x, y_true, y_pred):
     """
     Print result of test run to directory
     :param model: model to test
@@ -360,56 +345,41 @@ def print_test_result(csv_path_test, incorrect_pred_dir, distance_output_sets):
     :param incorrect_pred_file: output filepath to print out incorrect predictions
     :param distance_output_sets: sets of distances for each output of the model
     """
-    # Get ground truth data
-    csv_vals = None  # get_csv_data(csv_path_test, True) TODO: this fix this
-    y_true = []
-    for row in csv_vals:
-        y_true.append(int(row[IM_PER_ROW]))
-
     # Format of confusion matrix (outputed later)
     # print('TP FN')
     # print('FP TN')
 
-    # Create pred directory if it doesn't exist
-    if not os.path.exists(incorrect_pred_dir):
-        os.mkdir(incorrect_pred_dir)
+    print('Confusion Matrix ')
+    labels = None#[1, 0] #TODO: proper labels and names
+    print(confusion_matrix(y_true, y_pred, labels))
 
-    # Iterate through prediction sets and calculate result stats
-    for set_index in range(0, len(distance_output_sets)):
-        distance_output_set = distance_output_sets[set_index]
-        if len(csv_vals) != len(distance_output_set):
-            print("Error: Test data and test prediction different size")
-            return
+    target_names = None #get_class_names()
+    print(classification_report(y_true, y_pred, labels=labels, target_names=target_names))
 
-        # Distances and grouping predictions
-        y_pred = []
-        for euc_distance in distance_output_set:
-            y_pred.append(int(euc_distance < 0.5))
+    # print incorrect predictions to file
+    incorrect_predictions_file = os.path.join(incorrect_pred_dir, "incorrect.txt")
+    out_file = open(incorrect_predictions_file, "w")
+    line_format = "{0:49} {1:5} {2:5}\n"
+    out_file.write(line_format.format("img1", "act", "pred"))
+    for i in range(0, len(y_true)):
+        if y_true[i] != y_pred[i]:
+            img = x[i]
+            out_file.write(line_format.format(os.path.basename(img), str(y_true[i]), str(y_pred[i])))
+    out_file.close()
 
-        if len(y_true) != len(y_pred):
-            print("Error: prediction and test data not the same length")
-            return
 
-        print('Confusion Matrix ', set_index)
-        # TP FN
-        # FP TN
-        labels = [1, 0]
-        print(confusion_matrix(y_true, y_pred, labels))
-        print('Classification Report ', set_index)
-        target_names = ['Is Group', 'Not Group']
-        print(classification_report(y_true, y_pred, labels=labels, target_names=target_names))
+def class_num_to_one_hot(class_num, num_classes):
+    one_hot = np.zeros(num_classes)
+    one_hot[class_num] = 1
+    return one_hot
 
-        # print incorrect predictions to file
-        curr_pred_file = os.path.join(incorrect_pred_dir, "out_{iter}.txt".format(iter=set_index))
-        out_file = open(curr_pred_file, "w")
-        line_format = "{0:49} {1:53} {2:3} {3:4} {4:8}\n"
-        out_file.write(line_format.format("img1", "img2", "act", "pred", "euc_dist"))
-        for j in range(0, len(y_true)):
-            if y_true[j] != y_pred[j]:
-                img1 = csv_vals[j][0]
-                img2 = csv_vals[j][1]
-                out_file.write(line_format.format(img1, img2, str(y_true[j]), str(y_pred[j]), str(distance_output_set[j])))
-        out_file.close()
+
+def one_hot_to_class_num(one_hot):
+    max_val = max(one_hot)
+    max_indexes = np.where(one_hot == max_val)[0]
+    if len(max_indexes) > 1:
+        return UNKNOWN_CLASS_NUM
+    return max_indexes[0]
 
 
 def main():
@@ -465,20 +435,16 @@ def main():
     train(training_csv, validation_csv, images_dir, model_dir, num_epochs, initial_model_path=saved_model)
 
     # Test model
-    csv_path_test = '/storage/Images/prod_var_groupings/dataset/test-even.txt'
     incorrect_pred_dir = os.path.join(model_dir, 'incorrect_predictions')
+    if not os.path.exists(incorrect_pred_dir):
+        os.mkdir(incorrect_pred_dir)
+    incorrect_images_dir = os.path.join(incorrect_pred_dir, 'images')
+    if not os.path.exists(incorrect_images_dir):
+        os.mkdir(incorrect_images_dir)
+    csv_path_test = validation_csv
     vary_images = False
-    save_im_dir = None
-    #test_keras_model_as_saved(saved_model, csv_path_test, incorrect_pred_dir, vary_images, save_im_dir)
-    #load_and_test_keras_model(saved_model, output_finegrain, output_coarsegrain, csv_path_test, incorrect_pred_dir, vary_images, save_im_dir)
+    #test_keras_model(saved_model, csv_path_test, images_dir, incorrect_pred_dir, vary_images, None)
 
-    # epochs = [10]
-    # for epoch in epochs:
-    #     file_prefix = 'coarsegrain_finetune.' + format(epoch, "02")
-    #     file_paths = get_files_with_prefix(saved_models_dir, file_prefix)
-    #     if len(file_paths) > 0:
-    #         print("!!!! NEW FILE TEST: ", file_prefix)
-    #         load_and_test_keras_model(file_paths[0], csv_path_test, incorrect_pred_dir, vary_images=False, save_im_dir=None)
 
 if __name__ == '__main__':
     main()

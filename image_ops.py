@@ -1,21 +1,12 @@
 from tensorflow.python.keras.preprocessing import image
 from tensorflow.python.keras.preprocessing.image import Iterator, ImageDataGenerator
-import csv
 import os.path
 import numpy as np
 from tensorflow.python.keras import backend as K
 from io import BytesIO
 from PIL import Image as pil_image
 import PIL.ImageOps
-from enum import Enum
-from ast import literal_eval
 from math import sqrt, cos, sin, radians
-
-
-class DataType(Enum):
-    BINARY = 1
-    ONE_HOT_CATEGORICAL = 2
-    SOFT_CATEGORICAL = 3
 
 
 class CustomImageDataGenerator(ImageDataGenerator):
@@ -36,7 +27,7 @@ class CustomImageDataGenerator(ImageDataGenerator):
                  seed,
                  # siamese networks would have 2 images per row
                  im_per_row=1,
-                 make_grayscale=True,
+                 make_grayscale=False,
                  shift_hue=False,
                  invert_colours=False):
         super().__init__(zca_epsilon=0,
@@ -71,13 +62,8 @@ class CustomImageDataGenerator(ImageDataGenerator):
         # random_transform_params['jpeg_quality'] = jpeg_quality
         return random_transform_params
 
-    def apply_transform(self, inp, override_params=None):
+    def apply_transform(self, inp, transform_params=None):
         transform_params = self.get_random_transform_params(inp)
-
-        if override_params is not None:
-            for key in override_params:
-                transform_params[key] = override_params[key]
-
         result = super().apply_transform(inp, transform_params)
 
         greyscale = self.make_grayscale and len(result.shape) == 3 and np.random.random() <= 0.25
@@ -295,39 +281,14 @@ class ImageFileListIterator(Iterator):
 
         self.reweight_labels = reweight_labels
         self.sample_weights = self.determine_sample_weights()
-        if self.reweight_labels:
-            self._strip_unknown_labels()
 
         self.num_target_instances = num_target_instances
         self.label_bounds = label_bounds
-
-    def _partition_labels(self):
-        self.value_order = []
-        self.value_to_indices = {}
-        if self.partition_value is not None:
-            label_values = self.image_labels[self.partition_value]
-            for i in range(0, len(label_values)):
-                array = label_values[i]
-                if np.all(array == self.unknown_label_value):
-                    continue
-                if len(array.shape) >= 1:
-                    value = np.argmax(array)
-                else:
-                    if array < 0.5:
-                        value = 0
-                    else:
-                        value = 1
-                if value not in self.value_to_indices:
-                    self.value_to_indices[value] = []
-                self.value_to_indices[value].append(i)
-            self.length = len(self.value_to_indices)
-            self.value_order = [k for k in self.value_to_indices]
 
     def determine_sample_weights(self):
         # Calculate counts for each classification found
         key_counts = {}
         for label in self.image_labels:
-            # label = self.image_labels[im_index] # TODO: check dimension of list, this assumes 1 dimension right now
             if len(label.shape) >= 1:
                 key = np.argmax(label)
             else:
@@ -354,37 +315,6 @@ class ImageFileListIterator(Iterator):
             sample_weights[idx] = key_weights[key]
 
         return sample_weights
-
-    # TODO: remove these functions?
-    def _strip_unknown_label(self, label):
-        if np.all(label == self.unknown_label_value):
-            if isinstance(label, np.float64):
-                # assume it's a binary category
-                return 0.5
-            else:
-                return label / np.sum(label, axis=-1)
-        else:
-            return label
-
-    def crop_img(self, img, bounds):  #TODO: remove
-        left = bounds[0]
-        top = bounds[1]
-        right = bounds[2]
-        bottom = bounds[3]
-        return img[top:bottom, left:right, :]
-
-    def _strip_unknown_labels(self):
-        # strip unknown labels from image labels
-        image_labels = self.image_labels
-
-        if isinstance(image_labels, dict):
-            for label in image_labels:
-                for i in range(0, len(image_labels[label])):
-                    image_labels[label][i] = self._strip_unknown_label(image_labels[label][i])
-        else:
-            for label in range(0, len(image_labels)):
-                for i in range(0, len(image_labels[label])):
-                    image_labels[label][i] = self._strip_unknown_label(image_labels[label][i])
 
     def _get_batches_of_transformed_samples(self, index_array):
         batch_x = []
