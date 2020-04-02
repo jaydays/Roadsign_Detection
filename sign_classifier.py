@@ -12,7 +12,8 @@ import tensorflow.keras as keras
 
 from tensorflow.python.keras import models
 from tensorflow.python.keras.models import Sequential
-from tensorflow.python.keras.optimizers import Adam
+#from tensorflow.python.keras.optimizers import Adam
+from tensorflow.keras.optimizers import Adam
 from tensorflow.python.keras.applications.inception_v3 import preprocess_input
 from tensorflow.python.keras.layers import Dense, Conv2D, MaxPool2D, AveragePooling2D, Flatten, Dropout, BatchNormalization
 from sklearn.metrics import classification_report, confusion_matrix
@@ -32,27 +33,32 @@ def build_model():
     cnn = Sequential()
 
     # Convolutional Layers
-    cnn.add(Conv2D(filters=16, kernel_size=(3, 3), padding='same', activation='relu', input_shape=INPUT_SHAPE))
-    cnn.add(Conv2D(filters=16, kernel_size=(3, 3), padding='same', activation='relu'))
+    filters = 16
+    cnn.add(Conv2D(filters=filters, kernel_size=(3, 3), padding='same', activation='relu', input_shape=INPUT_SHAPE))
+    # cnn.add(Conv2D(filters=filters, kernel_size=(3, 3), padding='same', activation='relu'))
+    # cnn.add(BatchNormalization())
     cnn.add(MaxPool2D(pool_size=(2, 2), strides=2, padding='valid', data_format=None))
     # cnn.add(Dropout(0.5))
 
-    cnn.add(Conv2D(filters=32, kernel_size=(3, 3), padding='same', activation='relu'))
-    cnn.add(Conv2D(filters=32, kernel_size=(3, 3), padding='same', activation='relu'))
-    cnn.add(BatchNormalization())
+    filters = 32
+    # cnn.add(Conv2D(filters=filters, kernel_size=(3, 3), padding='same', activation='relu'))
+    cnn.add(Conv2D(filters=filters, kernel_size=(3, 3), padding='same', activation='relu'))
+    # cnn.add(BatchNormalization())
     cnn.add(MaxPool2D(pool_size=(2, 2), strides=2, padding='valid', data_format=None))
     # cnn.add(Dropout(0.5))
 
-    cnn.add(Conv2D(filters=64, kernel_size=(3, 3), padding='same', activation='relu'))
-    cnn.add(Conv2D(filters=64, kernel_size=(3, 3), padding='same', activation='relu'))
-    cnn.add(BatchNormalization())
-    cnn.add(MaxPool2D(pool_size=(2, 2), strides=2, padding='valid', data_format=None))
+    # filters = 64
+    # cnn.add(Conv2D(filters=filters, kernel_size=(3, 3), padding='same', activation='relu'))
+    # cnn.add(Conv2D(filters=filters, kernel_size=(3, 3), padding='same', activation='relu'))
+    # cnn.add(BatchNormalization())
+    # cnn.add(MaxPool2D(pool_size=(2, 2), strides=2, padding='valid', data_format=None))
     # cnn.add(Dropout(0.5))
 
-    cnn.add(Conv2D(filters=128, kernel_size=(3, 3), padding='same', activation='relu'))
-    cnn.add(Conv2D(filters=128, kernel_size=(3, 3), padding='same', activation='relu'))
-    cnn.add(BatchNormalization())
-    cnn.add(AveragePooling2D(pool_size=(2, 2), strides=2, padding='valid', data_format=None))
+    # filters = 128
+    # cnn.add(Conv2D(filters=filters, kernel_size=(3, 3), padding='same', activation='relu'))
+    # cnn.add(Conv2D(filters=filters, kernel_size=(3, 3), padding='same', activation='relu'))
+    # cnn.add(BatchNormalization())
+    # cnn.add(AveragePooling2D(pool_size=(2, 2), strides=2, padding='valid', data_format=None))
     # cnn.add(Dropout(0.5))
 
     # Fully Connected
@@ -64,7 +70,7 @@ def build_model():
 
     cnn.add(Dense(512, activation='sigmoid'))
     # cnn.add(BatchNormalization())
-    cnn.add(Dropout(0.5))
+    # cnn.add(Dropout(0.5))
 
     # Output
     cnn.add(Dense(numCategories, activation='softmax'))
@@ -202,19 +208,19 @@ def get_batches_per_epoch(csv_path, has_header, batch_size):
     return int(round(num_lines / batch_size, 0))
 
 
-def train(csv_path_train, csv_path_validation, images_dir, model_dir, num_epochs, initial_model_path=None):
+def train(csv_path_train, csv_path_validation, images_dir, model_dir, model_name, num_epochs, initial_model_path=None):
     """
     Build and train a siamese neural network with specified outputs
     :param csv_path: csv filepath that contains annotated data
     :param csv_path_validation: csv filepath that contains validation data
     :param model_dir: directory for outputs of this script
+    :param model_name: name to save the model information to
     :param num_epochs: number of epochs to train model
     :param output_finegrain: flag for whether finegrain layer will be an output or not
     :param output_coarsegrain: flag for whether coarsegrain layer will be an output or not
     :param finetune: non-output layers will be frozen if set to true
     :param initial_model_path: filepath of model to start training from, ignored if progress has already been made
     """
-    model_name = 'classifier'
 
     # Directories to save models and logs to
     save_dir = os.path.join(model_dir, 'saved_models')
@@ -269,7 +275,8 @@ def train(csv_path_train, csv_path_validation, images_dir, model_dir, num_epochs
 
     save_file_format = os.path.join(save_dir, model_name + '.{epoch:02d}-{val_loss:.2f}.hdf5')
     logs_callback = [
-        keras.callbacks.ModelCheckpoint(save_file_format, period=1),
+        #keras.callbacks.ModelCheckpoint(save_file_format, period=1),
+        keras.callbacks.ModelCheckpoint(save_file_format, save_freq='epoch'),
         keras.callbacks.TensorBoard(log_dir=log_dir)]
 
     # The number of target instances must equal the number of output layers
@@ -297,6 +304,7 @@ def train(csv_path_train, csv_path_validation, images_dir, model_dir, num_epochs
         workers=num_workers,
         use_multiprocessing=use_multiprocessing,
         initial_epoch=start_epoch)
+    return model
 
 
 def test_keras_model(model, csv_path_test, images_dir, incorrect_pred_dir, vary_images=False, save_im_dir=None):
@@ -431,8 +439,9 @@ def main():
         print("Model: ", saved_model)
 
     # Train model
-    num_epochs = 6
-    train(training_csv, validation_csv, images_dir, model_dir, num_epochs, initial_model_path=saved_model)
+    num_epochs = 20
+    model_name = 'classifier'
+    train(training_csv, validation_csv, images_dir, model_dir, model_name, num_epochs, initial_model_path=saved_model)
 
     # Test model
     incorrect_pred_dir = os.path.join(model_dir, 'incorrect_predictions')
@@ -443,7 +452,7 @@ def main():
         os.mkdir(incorrect_images_dir)
     csv_path_test = validation_csv
     vary_images = False
-    #test_keras_model(saved_model, csv_path_test, images_dir, incorrect_pred_dir, vary_images, None)
+    test_keras_model(saved_model, csv_path_test, images_dir, incorrect_pred_dir, vary_images, None)
 
 
 if __name__ == '__main__':
