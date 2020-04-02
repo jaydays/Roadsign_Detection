@@ -22,8 +22,8 @@ import image_ops as custom_image
 import numpy as np
 
 IM_PER_ROW = 1  # TODO: get rid of this
-IM_SIZE = (100, 100)
-INPUT_SHAPE = (100, 100, 3)
+IM_SIZE = (96, 96)
+INPUT_SHAPE = (96, 96, 3)
 UNKNOWN_CLASS_NUM = -1
 
 
@@ -70,7 +70,7 @@ def build_model():
 
     cnn.add(Dense(512, activation='sigmoid'))
     # cnn.add(BatchNormalization())
-    cnn.add(Dropout(0.5))
+    # cnn.add(Dropout(0.5))
 
     # Output
     cnn.add(Dense(numCategories, activation='softmax'))
@@ -278,7 +278,7 @@ def train(csv_path_train, csv_path_validation, images_dir, model_dir, model_name
     logs_callback = [
         #keras.callbacks.ModelCheckpoint(save_file_format, period=1),
         keras.callbacks.ModelCheckpoint(save_file_format, save_freq='epoch'),
-        keras.callbacks.TensorBoard(log_dir=log_dir)]
+        keras.callbacks.TensorBoard(log_dir=log_dir,histogram_freq=1)]
 
     # The number of target instances must equal the number of output layers
     num_target_instances = len(model.outputs)
@@ -403,6 +403,8 @@ def main():
     # but can explore a heuristic
     # the best model is taken out of the subfolder and renamed 'best_model.hdf5'
 
+    model_name = 'classifier_base'
+
     project_dir = os.path.abspath(os.getcwd())
 
     # Created model directories
@@ -410,8 +412,8 @@ def main():
     if not os.path.exists(models_dir):
         os.mkdir(models_dir)
 
-    model_label = 'sign_classifier'
-    model_dir = os.path.join(models_dir, model_label)
+    #model_label = 'sign_classifier'
+    model_dir = os.path.join(models_dir, model_name)
     if not os.path.exists(model_dir):
         os.mkdir(model_dir)
 
@@ -441,7 +443,6 @@ def main():
 
     # Train model
     num_epochs = 20
-    model_name = 'classifier_drop'
     model = train(training_csv, validation_csv, images_dir, model_dir, model_name, num_epochs, initial_model_path=saved_model)
 
     # Test model
