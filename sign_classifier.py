@@ -70,7 +70,7 @@ def build_model():
 
     cnn.add(Dense(512, activation='sigmoid'))
     # cnn.add(BatchNormalization())
-    # cnn.add(Dropout(0.5))
+    cnn.add(Dropout(0.5))
 
     # Output
     cnn.add(Dense(numCategories, activation='softmax'))
@@ -232,9 +232,6 @@ def train(csv_path_train, csv_path_validation, images_dir, model_dir, model_name
 
     # Get the current state
     current_model_path, start_epoch = get_last_checkpoint(save_dir, model_name)
-    if start_epoch >= num_epochs:
-        print('Already finished training')
-        return
 
     # Override model with checkpoint if specified
     if current_model_path is not None:
@@ -249,6 +246,10 @@ def train(csv_path_train, csv_path_validation, images_dir, model_dir, model_name
     else:
         print("Load model at ", initial_model_path)
         model = load_model(initial_model_path)
+
+    if start_epoch >= num_epochs:
+        print('Already finished training')
+        return model
 
     # Initialize the image generator
     vary_images = False
@@ -440,8 +441,8 @@ def main():
 
     # Train model
     num_epochs = 20
-    model_name = 'classifier'
-    train(training_csv, validation_csv, images_dir, model_dir, model_name, num_epochs, initial_model_path=saved_model)
+    model_name = 'classifier_drop'
+    model = train(training_csv, validation_csv, images_dir, model_dir, model_name, num_epochs, initial_model_path=saved_model)
 
     # Test model
     incorrect_pred_dir = os.path.join(model_dir, 'incorrect_predictions')
@@ -452,7 +453,7 @@ def main():
         os.mkdir(incorrect_images_dir)
     csv_path_test = validation_csv
     vary_images = False
-    test_keras_model(saved_model, csv_path_test, images_dir, incorrect_pred_dir, vary_images, None)
+    test_keras_model(model, csv_path_test, images_dir, incorrect_pred_dir, vary_images, None)
 
 
 if __name__ == '__main__':
