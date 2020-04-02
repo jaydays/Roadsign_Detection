@@ -33,25 +33,18 @@ def build_model():
     cnn = Sequential()
 
     # Convolutional Layers
-    filters = 16
+    filters = 4
     cnn.add(Conv2D(filters=filters, kernel_size=(3, 3), padding='same', activation='relu', input_shape=INPUT_SHAPE))
-    # cnn.add(Conv2D(filters=filters, kernel_size=(3, 3), padding='same', activation='relu'))
-    # cnn.add(BatchNormalization())
-    cnn.add(MaxPool2D(pool_size=(2, 2), strides=2, padding='valid', data_format=None))
-    # cnn.add(Dropout(0.5))
-
-    filters = 32
-    # cnn.add(Conv2D(filters=filters, kernel_size=(3, 3), padding='same', activation='relu'))
     cnn.add(Conv2D(filters=filters, kernel_size=(3, 3), padding='same', activation='relu'))
-    # cnn.add(BatchNormalization())
+    cnn.add(BatchNormalization())
     cnn.add(MaxPool2D(pool_size=(2, 2), strides=2, padding='valid', data_format=None))
     # cnn.add(Dropout(0.5))
 
-    # filters = 64
-    # cnn.add(Conv2D(filters=filters, kernel_size=(3, 3), padding='same', activation='relu'))
-    # cnn.add(Conv2D(filters=filters, kernel_size=(3, 3), padding='same', activation='relu'))
-    # cnn.add(BatchNormalization())
-    # cnn.add(MaxPool2D(pool_size=(2, 2), strides=2, padding='valid', data_format=None))
+    filters = filters * 2
+    cnn.add(Conv2D(filters=filters, kernel_size=(3, 3), padding='same', activation='relu'))
+    cnn.add(Conv2D(filters=filters, kernel_size=(3, 3), padding='same', activation='relu'))
+    cnn.add(BatchNormalization())
+    cnn.add(MaxPool2D(pool_size=(2, 2), strides=2, padding='valid', data_format=None))
     # cnn.add(Dropout(0.5))
 
     # filters = 128
@@ -68,7 +61,7 @@ def build_model():
     # cnn.add(BatchNormalization())
     # cnn.add(Dropout(0.5))
 
-    cnn.add(Dense(512, activation='sigmoid'))
+    cnn.add(Dense(128, activation='sigmoid')) # 512
     # cnn.add(BatchNormalization())
     # cnn.add(Dropout(0.5))
 
@@ -278,7 +271,7 @@ def train(csv_path_train, csv_path_validation, images_dir, model_dir, model_name
     logs_callback = [
         #keras.callbacks.ModelCheckpoint(save_file_format, period=1),
         keras.callbacks.ModelCheckpoint(save_file_format, save_freq='epoch'),
-        keras.callbacks.TensorBoard(log_dir=log_dir,histogram_freq=1)]
+        keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)]
 
     # The number of target instances must equal the number of output layers
     num_target_instances = len(model.outputs)
@@ -362,7 +355,7 @@ def print_test_result(incorrect_pred_dir, x, y_true, y_pred):
     labels = None#[1, 0] #TODO: proper labels and names
     print(confusion_matrix(y_true, y_pred, labels))
 
-    target_names = None #get_class_names()
+    target_names = None # get_class_names()
     print(classification_report(y_true, y_pred, labels=labels, target_names=target_names))
 
     # print incorrect predictions to file
@@ -403,7 +396,7 @@ def main():
     # but can explore a heuristic
     # the best model is taken out of the subfolder and renamed 'best_model.hdf5'
 
-    model_name = 'classifier_base'
+    model_name = 'classifier_base_4xConv_64xDense_4xFilters'
 
     project_dir = os.path.abspath(os.getcwd())
 
@@ -412,7 +405,7 @@ def main():
     if not os.path.exists(models_dir):
         os.mkdir(models_dir)
 
-    #model_label = 'sign_classifier'
+    # model_label = 'sign_classifier'
     model_dir = os.path.join(models_dir, model_name)
     if not os.path.exists(model_dir):
         os.mkdir(model_dir)
