@@ -25,8 +25,6 @@ class CustomImageDataGenerator(ImageDataGenerator):
                  preprocessing_function,
                  image_size,
                  seed,
-                 # siamese networks would have 2 images per row
-                 im_per_row=1,
                  make_grayscale=False,
                  shift_hue=False,
                  invert_colours=False):
@@ -47,7 +45,6 @@ class CustomImageDataGenerator(ImageDataGenerator):
         self.jpeg_compression = jpeg_compression
         self.seed = seed
         self.image_size = image_size
-        self.im_per_row = im_per_row
         self.make_grayscale = make_grayscale
         self.shift_hue = shift_hue
         self.invert_colours = invert_colours
@@ -92,7 +89,7 @@ class CustomImageDataGenerator(ImageDataGenerator):
         if not greyscale and self.shift_hue and np.random.random() <= 0.1:
             result = self.rotate_hue(result, np.random.randint(0, 359))
 
-        if self.invert_colours and np.random.random() <= 0.1:
+        if not greyscale and self.invert_colours and np.random.random() <= 0.1:
             # invert image colours
             img = image.array_to_img(result)
             img = PIL.ImageOps.invert(img)
@@ -144,55 +141,13 @@ class CustomImageDataGenerator(ImageDataGenerator):
         out_file.write(text)
         out_file.close()
 
-
-    def flow_from_csv(self, csv_path, delimiter=',', has_header=True, batch_size=32, shuffle=True, save_to_dir=None,
-                      save_prefix='', save_format='png', label_suffix='', label_delimiter='|', unknown_label_value=-1,
-                      reweight_labels=False, num_target_instances=1, label_bounds=None):
-
-        """
-        :param csv_path: path to csv file to read, with image paths and their label(s). labels must be integer values.
-        :param delimiter: delimiters used in the csv file
-        :param has_header: if the csv file has a header line (which should be skipped)
-        :param batch_size: batch size to iterate over
-        :param shuffle: whether or not to shuffle the input after every full iteration
-        :param save_to_dir: if not None, save transformed images to this directory
-        :param save_prefix: prefix saved image filenames with this
-        :param save_format: save images with this file format
-        :param label_suffix: append this suffix to image labels (only matters if there is a header)
-        :param label_delimiter: delimiter within each attribute
-        :param unknown_label_value: for an unknown label value, put this value
-        :param reweight_labels: reweight target labels dependant on their frequency
-        :param num_target_instances: number of instances of target data in batch output, used if multiple outputs expect same target data
-        :return: an iterator over dynamically augmented images and their labels
-        """
-        image_paths, image_labels, label_types = self.get_paths_and_labels_from_csv(csv_path,
-                                                                                    delimiter,
-                                                                                    has_header,
-                                                                                    label_suffix,
-                                                                                    label_delimiter,
-                                                                                    unknown_label_value)
-
-        return self.flow_from_iterator(image_paths,
-                                       image_labels,
-                                       label_types,
-                                       batch_size,
-                                       shuffle,
-                                       save_to_dir,
-                                       save_prefix,
-                                       save_format,
-                                       unknown_label_value,
-                                       reweight_labels,
-                                       num_target_instances,
-                                       label_bounds)
-
-    def flow_from_iterator(self, image_paths, image_labels, label_types, batch_size=32, shuffle=True, save_to_dir=None,
+    def flow_from_iterator(self, image_paths, image_labels, batch_size=32, shuffle=True, save_to_dir=None,
                            save_prefix='', save_format='png', unknown_label_value=-1,
                            reweight_labels=False, num_target_instances=1, label_bounds=None):
 
         """
         :param image_paths: list of image paths
         :param image_labels: labels associated with images
-        :param label_types: TODO??
         :param batch_size: batch size to iterate over
         :param shuffle: whether or not to shuffle the input after every full iteration
         :param save_to_dir: if not None, save transformed images to this directory
@@ -216,8 +171,6 @@ class CustomImageDataGenerator(ImageDataGenerator):
                                      save_to_dir,
                                      save_prefix,
                                      save_format,
-                                     self.im_per_row,
-                                     label_types,
                                      unknown_label_value,
                                      reweight_labels,
                                      num_target_instances,
@@ -237,8 +190,6 @@ class ImageFileListIterator(Iterator):
                  save_to_dir,
                  save_prefix,
                  save_format,
-                 im_per_row,
-                 label_types=None,
                  unknown_label_value=-1,
                  reweight_labels=False,
                  num_target_instances=1,
@@ -252,7 +203,6 @@ class ImageFileListIterator(Iterator):
         :param seed: seed for randomizer
         :param image_generator: image data generator used to augment images
         :param image_size: image size on load
-        :param im_per_row: number of images per row in the matrix
         :param partition_value: the label to partition by. if None, use no partitions. Should only be used for categorical labels
         :param num_per_partition: number of images per partition
         :param num_target_instances: number of instances of target data in batch output, used if multiple outputs expect same target data
@@ -276,8 +226,6 @@ class ImageFileListIterator(Iterator):
         self.save_to_dir = save_to_dir
         self.save_prefix = save_prefix
         self.save_format = save_format
-        self.im_per_row = im_per_row
-        self.label_types = label_types
 
         self.reweight_labels = reweight_labels
         self.sample_weights = self.determine_sample_weights()
@@ -332,11 +280,10 @@ class ImageFileListIterator(Iterator):
                 img = img.crop(tuple(self.label_bounds[row_idx]))
                 img = img.resize(self.image_size, resample=resample)
             else:
-                img = image.load_img(path=filename, target_size=self.image_size) #TODO: add proper interpolation here
+                img = image.load_img(path=filename, target_size=self.image_size)
 
             x = image.img_to_array(img, self.image_generator.data_format)
 
-            # TODO: can get rid of override param functionality
             transform_params = self.image_generator.get_random_transform_params(x, None)
             x = self.image_generator.apply_transform(x, transform_params)
             x = self.image_generator.standardize(x)

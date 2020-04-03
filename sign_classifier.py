@@ -1,35 +1,30 @@
-#
-# Train the product variation grouping model (is group or not) Using Keras
-# The model is a siamese model, 2 input images are fed into a pretrained lower model with sigmoid embedding output
-# layer(s) appended at the end. The euclidean distance and contrastive loss between the 2 output embeddings is
-# calculated to train the lower model. When exporting, only the lower model which outputs the embeddings is exported
 import csv
 import os
 import random
-
+import numpy as np
 
 import tensorflow.keras as keras
-
 from tensorflow.python.keras import models
 from tensorflow.python.keras.models import Sequential
-#from tensorflow.python.keras.optimizers import Adam
 from tensorflow.keras.optimizers import Adam
 from tensorflow.python.keras.applications.inception_v3 import preprocess_input
-from tensorflow.python.keras.layers import Dense, Conv2D, MaxPool2D, AveragePooling2D, Flatten, Dropout, BatchNormalization
+from tensorflow.python.keras.layers import Dense, Conv2D, MaxPool2D, Flatten, BatchNormalization
 from sklearn.metrics import classification_report, confusion_matrix
 
 import image_ops as custom_image
-import numpy as np
 
-IM_PER_ROW = 1  # TODO: get rid of this
 IM_SIZE = (96, 96)
 INPUT_SHAPE = (96, 96, 3)
+LEARNING_RATE = 0.001
 UNKNOWN_CLASS_NUM = -1
 
 
-def build_model():
-    numCategories = len(get_class_names())
-    learning_rate = 0.001
+def build_and_compile_model():
+    """
+    Build and compile a keras seqeantial model to classify signs
+    :returns: keras sequential model
+    """
+    num_categories = len(get_class_names())
     cnn = Sequential()
 
     # Convolutional Layers
@@ -66,26 +61,41 @@ def build_model():
     # cnn.add(Dropout(0.5))
 
     # Output
-    cnn.add(Dense(numCategories, activation='softmax'))
+    cnn.add(Dense(num_categories, activation='softmax'))
 
     print(cnn.summary())
 
-    compile_model(cnn, learning_rate)
+    compile_model(cnn)
     return cnn
 
 
-def compile_model(model, learning_rate=0.001):
-    adam = Adam(lr=learning_rate)
+def compile_model(model):
+    """
+    Compile a keras model with adam optimizer
+    :param model: keras model to compile
+    """
+    adam = Adam(lr=LEARNING_RATE)
     model.compile(loss='categorical_crossentropy', optimizer=adam, metrics=['accuracy'])
 
 
 def load_model(model_filepath):
+    """
+    Load a specified keras model saved in hdf5 format
+    :param model_filepath: filepath of hdf5
+    :return: keras model
+    """
     model = models.load_model(model_filepath)
     compile_model(model)
     return model
 
 
 def get_class_names():
+    """
+    Get the class names found in the dataset
+    :param saved_model_dir:
+    :param file_prefix: what the filename starts with
+    :return: list of class names
+    """
     class_names = ['addedLane', 'curveLeft', 'curveRight', 'dip', 'doNotEnter', 'doNotPass', 'intersection',
                    'keepRight', 'laneEnds',
                    'merge', 'noLeftTurn', 'noRightTurn', 'pedestrianCrossing', 'rampSpeedAdvisory20',
@@ -104,7 +114,7 @@ def get_class_names():
 
 def get_last_checkpoint(saved_model_dir, file_prefix):
     """
-    get the most recent epoch of saved models with filenames of the form file_prefix.{epoch:02d}-{val_loss:.2f}.hdf5
+    Get the most recent epoch of saved models with filenames of the form file_prefix.{epoch:02d}-{val_loss:.2f}.hdf5
     file_prefix should not have any periods
     :param saved_model_dir:
     :param file_prefix: what the filename starts with
@@ -128,6 +138,14 @@ def get_last_checkpoint(saved_model_dir, file_prefix):
 
 
 def create_training_validation_csv(input_csv, training_csv, validation_csv, training_split, has_header):
+    """
+    Split annotations csv into a training and validation csv
+    :param input_csv: filepath of original input csv
+    :param training_csv: filepath to save training csv to
+    :param validation_csv: filepath to save validation csv to
+    :param training_split: fraction of input lines that go to training csv, remaining go to validation
+    :param has_header: flag for if input csv has header or not
+    """
     if os.path.isfile(training_csv):
         os.remove(training_csv)
     if os.path.isfile(validation_csv):
@@ -157,6 +175,13 @@ def create_training_validation_csv(input_csv, training_csv, validation_csv, trai
 
 
 def get_data_from_csv(csv_path, image_root_dir, delimiter=';', has_header=True):
+    """
+    Parse csv and extract data for use in image iterator TODO: more accurate decription
+    :param csv_path: filepath to csv dataset
+    :param image_root_dir: directory where images are saved
+    :param delimiter: csv delimter
+    :return: tuple of image paths, labels, and label boundaries
+    """
     class_names = get_class_names()
     num_classes = len(class_names)
 
@@ -204,15 +229,14 @@ def get_batches_per_epoch(csv_path, has_header, batch_size):
 def train(csv_path_train, csv_path_validation, images_dir, model_dir, model_name, num_epochs, initial_model_path=None):
     """
     Build and train a siamese neural network with specified outputs
-    :param csv_path: csv filepath that contains annotated data
+    :param csv_path_train: csv filepath that contains annotated data
     :param csv_path_validation: csv filepath that contains validation data
+    :param images_dir: directory where images are stored
     :param model_dir: directory for outputs of this script
     :param model_name: name to save the model information to
     :param num_epochs: number of epochs to train model
-    :param output_finegrain: flag for whether finegrain layer will be an output or not
-    :param output_coarsegrain: flag for whether coarsegrain layer will be an output or not
-    :param finetune: non-output layers will be frozen if set to true
-    :param initial_model_path: filepath of model to start training from, ignored if progress has already been made
+    :param initial_model_path: filepath of model to start training from, overrides progress if some has been made
+    :return: trained model at last epoch of training
     """
 
     # Directories to save models and logs to
@@ -235,7 +259,7 @@ def train(csv_path_train, csv_path_validation, images_dir, model_dir, model_name
 
     if initial_model_path is None:
         print("Build new model from scratch")
-        model = build_model()
+        model = build_and_compile_model()
     else:
         print("Load model at ", initial_model_path)
         model = load_model(initial_model_path)
@@ -245,25 +269,24 @@ def train(csv_path_train, csv_path_validation, images_dir, model_dir, model_name
         return model
 
     # Initialize the image generator
-    vary_images = False
-    print("Vary images from image generator? ", vary_images)
-    if vary_images:
-        image_generator = custom_image.CustomImageDataGenerator(10, 0.05, 0.05, 0.1, 0.1, 40,
-                                                                'nearest', 0, False, False, False,
-                                                                preprocess_input, IM_SIZE, 1,
-                                                                shift_hue=True, invert_colours=True)
-    else:
-        shift_hue = False
-        image_generator = custom_image.CustomImageDataGenerator(0, 0, 0, 0, 0, 0,
-                                                                'nearest', 0, False, False, False,
-                                                                preprocess_input, IM_SIZE, 1,
-                                                                shift_hue=shift_hue, invert_colours=False)
+    vary_images = True
+    standard_image_generator = custom_image.CustomImageDataGenerator(0, 0, 0, 0, 0, 0,
+                                                                     'nearest', 0, False, False, False,
+                                                                     preprocess_input, IM_SIZE, 1,
+                                                                     shift_hue=False, invert_colours=False)
+    varied_image_generator = custom_image.CustomImageDataGenerator(10, 0.05, 0.05, 0, 0.1, 0,
+                                                                   'nearest', 0, False, False, True,
+                                                                   preprocess_input, IM_SIZE, 1, shift_hue=True,
+                                                                   invert_colours=True, make_grayscale=True)
+
+    training_image_gen = varied_image_generator if vary_images else standard_image_generator
+    val_image_generator = standard_image_generator
 
     # Initialize other training params
     batch_size = 32
     batches_per_epoch_train = get_batches_per_epoch(csv_path_train, True, batch_size)
     batches_per_epoch_validation = get_batches_per_epoch(csv_path_validation, True, batch_size)
-    # TODO: check this
+
     num_workers = 9
     use_multiprocessing = False
 
@@ -281,18 +304,18 @@ def train(csv_path_train, csv_path_validation, images_dir, model_dir, model_name
 
     # Train the model
     model.fit_generator(
-        generator=image_generator.flow_from_iterator(paths_train, labels_train, None, batch_size, False,
-                                                     reweight_labels=True, save_to_dir=None,#model_dir,
-                                                     num_target_instances=num_target_instances,
-                                                     label_bounds=train_bounds),
+        generator=training_image_gen.flow_from_iterator(paths_train, labels_train, None, batch_size, False,
+                                                        reweight_labels=True, save_to_dir=None,#model_dir,
+                                                        num_target_instances=num_target_instances,
+                                                        label_bounds=train_bounds),
         steps_per_epoch=batches_per_epoch_train,
         epochs=num_epochs,
         verbose=1,
         callbacks=logs_callback,
-        validation_data=image_generator.flow_from_iterator(paths_val, labels_val, None, batch_size, False,
-                                                           reweight_labels=True, save_to_dir=None,
-                                                           num_target_instances=num_target_instances,
-                                                           label_bounds=val_bounds),
+        validation_data=val_image_generator.flow_from_iterator(paths_val, labels_val, None, batch_size, False,
+                                                               reweight_labels=True, save_to_dir=None,
+                                                               num_target_instances=num_target_instances,
+                                                               label_bounds=val_bounds),
         validation_steps=batches_per_epoch_validation,
         # max_queue_size=batches_per_epoch_train,
         workers=num_workers,
@@ -307,22 +330,20 @@ def test_keras_model(model, csv_path_test, images_dir, incorrect_pred_dir, vary_
     :param model: model to test
     :param csv_path_test: filepath for csv with test data
     :param incorrect_pred_file: output filepath to print out incorrect predictions
-    :param vary_images: flag for wether test images will be randomly transformed or not
-    :param save_im_dir: filepath to save test images to
+    :param vary_images: flag for whether test images will be randomly transformed or not
+    :param save_im_dir: filepath to save test images to, not saved if not specified
     """
-    batch_size = int(32 / IM_PER_ROW)
-    if vary_images:
-        image_generator = custom_image.CustomImageDataGenerator(10, 0.05, 0.05, 0.1, 0.1, 40,
-                                                                'nearest', 0, False, False, False,
-                                                                preprocess_input, IM_SIZE, 1,
-                                                                im_per_row=IM_PER_ROW, shift_hue=True,
-                                                                invert_colours=True)
-    else:
-        image_generator = custom_image.CustomImageDataGenerator(0, 0, 0, 0, 0, 0,
-                                                                'nearest', 0, False, False, False,
-                                                                preprocess_input, IM_SIZE, 1,
-                                                                im_per_row=IM_PER_ROW, shift_hue=False,
-                                                                invert_colours=False)
+    batch_size = 32
+    varied_image_generator = custom_image.CustomImageDataGenerator(10, 0.05, 0.05, 0.1, 0.1, 40,
+                                                                   'nearest', 0, False, False, False,
+                                                                   preprocess_input, IM_SIZE, 1, shift_hue=True,
+                                                                   invert_colours=True)
+    standard_image_generator = custom_image.CustomImageDataGenerator(0, 0, 0, 0, 0, 0,
+                                                                     'nearest', 0, False, False, False,
+                                                                     preprocess_input, IM_SIZE, 1, shift_hue=False,
+                                                                     invert_colours=False)
+
+    image_generator = varied_image_generator if vary_images else standard_image_generator
 
     paths_test, labels_test, bounds_test = get_data_from_csv(csv_path_test, images_dir)
     predictions = model.predict_generator(
@@ -339,24 +360,23 @@ def test_keras_model(model, csv_path_test, images_dir, incorrect_pred_dir, vary_
     print_test_result(incorrect_pred_dir, paths_test, y_true, y_pred)
 
 
-def print_test_result(incorrect_pred_dir, x, y_true, y_pred):
+def print_test_result(incorrect_pred_dir, image_filepaths, y_true, y_pred):
     """
     Print result of test run to directory
-    :param model: model to test
-    :param csv_path_test: filepath for csv with test data
-    :param incorrect_pred_file: output filepath to print out incorrect predictions
-    :param distance_output_sets: sets of distances for each output of the model
+    :param incorrect_pred_dir: output directory to print out incorrect predictions
+    :param image_filepaths: list of image filepaths
+    :param y_true: list of ground truth labels (class numbers not one-hot)
+    :param y_pred:list of predicted labels (class numbers not one-hot)
     """
-    # Format of confusion matrix (outputed later)
-    # print('TP FN')
-    # print('FP TN')
 
     print('Confusion Matrix ')
     labels = None#[1, 0] #TODO: proper labels and names
     print(confusion_matrix(y_true, y_pred, labels))
 
-    target_names = None # get_class_names()
-    print(classification_report(y_true, y_pred, labels=labels, target_names=target_names))
+    class_names = get_class_names()
+    class_nums = range(0, len(class_names)+1)
+
+    print(classification_report(y_true, y_pred, labels=class_nums, target_names=class_names))
 
     # print incorrect predictions to file
     incorrect_predictions_file = os.path.join(incorrect_pred_dir, "incorrect.txt")
@@ -365,18 +385,29 @@ def print_test_result(incorrect_pred_dir, x, y_true, y_pred):
     out_file.write(line_format.format("img1", "act", "pred"))
     for i in range(0, len(y_true)):
         if y_true[i] != y_pred[i]:
-            img = x[i]
+            img = image_filepaths[i]
             out_file.write(line_format.format(os.path.basename(img), str(y_true[i]), str(y_pred[i])))
     out_file.close()
 
 
 def class_num_to_one_hot(class_num, num_classes):
+    """
+    Convert a class number to equivalent one-hot encoding
+    :param class_num: class number
+    :param num_classes: number of classifications
+    :return: one-hot class encoding
+    """
     one_hot = np.zeros(num_classes)
     one_hot[class_num] = 1
     return one_hot
 
 
 def one_hot_to_class_num(one_hot):
+    """
+    Convert a one-hot encoding into a class number
+    :param one_hot: one-hot class encoding
+    :return: class number
+    """
     max_val = max(one_hot)
     max_indexes = np.where(one_hot == max_val)[0]
     if len(max_indexes) > 1:
@@ -385,19 +416,6 @@ def one_hot_to_class_num(one_hot):
 
 
 def main():
-    # Modify model by appending coarse grain output (do once only)
-    # append_coarse_grain_output_to_lower_model(saved_model)
-
-    # Train the model, then pick the "best" model
-    # typically it's looking at the validation error as the epoch increases
-    # and finding a point where the model is starting to overfit
-    # (e.g. validation error is increasing)
-    # currently done by hand, as there might be some ups and downs
-    # but can explore a heuristic
-    # the best model is taken out of the subfolder and renamed 'best_model.hdf5'
-
-    model_name = 'classifier_base_2xConv_128xDense_4xFilters'
-
     project_dir = os.path.abspath(os.getcwd())
 
     # Created model directories
@@ -405,7 +423,7 @@ def main():
     if not os.path.exists(models_dir):
         os.mkdir(models_dir)
 
-    # model_label = 'sign_classifier'
+    model_name = 'classifier_base_2xConv_128xDense_4xFilters_Vary'
     model_dir = os.path.join(models_dir, model_name)
     if not os.path.exists(model_dir):
         os.mkdir(model_dir)
@@ -435,8 +453,8 @@ def main():
         print("Model: ", saved_model)
 
     # Train model
-    num_epochs = 20
-    model = train(training_csv, validation_csv, images_dir, model_dir, model_name, num_epochs, initial_model_path=saved_model)
+    num_epochs = 60
+    #model = train(training_csv, validation_csv, images_dir, model_dir, model_name, num_epochs, initial_model_path=saved_model)
 
     # Test model
     incorrect_pred_dir = os.path.join(model_dir, 'incorrect_predictions')
@@ -447,6 +465,7 @@ def main():
         os.mkdir(incorrect_images_dir)
     csv_path_test = validation_csv
     vary_images = False
+    model = load_model(os.path.join(model_dir, 'saved_models/classifier_base_2xConv_128xDense_4xFilters_Vary.59-0.08.hdf5'))
     test_keras_model(model, csv_path_test, images_dir, incorrect_pred_dir, vary_images, None)
 
 
