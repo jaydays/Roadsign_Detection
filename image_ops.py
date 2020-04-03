@@ -143,7 +143,7 @@ class CustomImageDataGenerator(ImageDataGenerator):
 
     def flow_from_iterator(self, image_paths, image_labels, batch_size=32, shuffle=True, save_to_dir=None,
                            save_prefix='', save_format='png', unknown_label_value=-1,
-                           reweight_labels=False, num_target_instances=1, label_bounds=None):
+                           reweight_labels=False, label_bounds=None):
 
         """
         :param image_paths: list of image paths
@@ -153,12 +153,10 @@ class CustomImageDataGenerator(ImageDataGenerator):
         :param save_to_dir: if not None, save transformed images to this directory
         :param save_prefix: prefix saved image filenames with this
         :param save_format: save images with this file format
-        :param label_suffix: append this suffix to image labels (only matters if there is a header)
-        :param label_delimiter: delimiter within each attribute
         :param unknown_label_value: for an unknown label value, put this value
         :param reweight_labels: reweight target labels dependant on their frequency
-        :param num_target_instances: number of instances of target data in batch output, used if multiple outputs expect same target data
-        :return: an iterator over dynamically augmented images and their labels
+        :param label_bounds: list of pre-crop boundaries for each image
+        :return: ImageFileListIterator to provide input data for model training/validation
         """
 
         return ImageFileListIterator(image_paths,
@@ -173,7 +171,6 @@ class CustomImageDataGenerator(ImageDataGenerator):
                                      save_format,
                                      unknown_label_value,
                                      reweight_labels,
-                                     num_target_instances,
                                      label_bounds)
 
 
@@ -192,29 +189,12 @@ class ImageFileListIterator(Iterator):
                  save_format,
                  unknown_label_value=-1,
                  reweight_labels=False,
-                 num_target_instances=1,
                  label_bounds=None):
 
-        """
-        :param image_paths: matrix of image paths. one column for each input
-        :param image_labels: a list of image label arrays, one for each output
-        :param batch_size: batch size to return (or if using partitions, number of unique values to return)
-        :param shuffle: if the input should be shuffled after each full iteration
-        :param seed: seed for randomizer
-        :param image_generator: image data generator used to augment images
-        :param image_size: image size on load
-        :param partition_value: the label to partition by. if None, use no partitions. Should only be used for categorical labels
-        :param num_per_partition: number of images per partition
-        :param num_target_instances: number of instances of target data in batch output, used if multiple outputs expect same target data
-        """
-
-        # self.partition_value = partition_value
-        # self.num_per_partition = num_per_partition
         self.length = len(image_paths)
         self.image_paths = image_paths
         self.image_labels = image_labels
         self.unknown_label_value = unknown_label_value
-        # self._partition_labels()
 
         super().__init__(self.length,
                          batch_size,
@@ -226,11 +206,8 @@ class ImageFileListIterator(Iterator):
         self.save_to_dir = save_to_dir
         self.save_prefix = save_prefix
         self.save_format = save_format
-
         self.reweight_labels = reweight_labels
         self.sample_weights = self.determine_sample_weights()
-
-        self.num_target_instances = num_target_instances
         self.label_bounds = label_bounds
 
     def determine_sample_weights(self):
@@ -301,9 +278,7 @@ class ImageFileListIterator(Iterator):
                 img.close()
             batch_x.append(b_x)
 
-        batch_y_out = []
-        for i in range(0, self.num_target_instances):
-            batch_y_out.append(batch_y)
+        batch_y_out = [batch_y]
 
         if self.reweight_labels:
             return batch_x, batch_y_out, sample_weights

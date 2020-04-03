@@ -176,7 +176,7 @@ def create_training_validation_csv(input_csv, training_csv, validation_csv, trai
 
 def get_data_from_csv(csv_path, image_root_dir, delimiter=';', has_header=True):
     """
-    Parse csv and extract data for use in image iterator TODO: more accurate decription
+    Parse csv and extract data for use in image iterator
     :param csv_path: filepath to csv dataset
     :param image_root_dir: directory where images are saved
     :param delimiter: csv delimter
@@ -292,7 +292,6 @@ def train(csv_path_train, csv_path_validation, images_dir, model_dir, model_name
 
     save_file_format = os.path.join(save_dir, model_name + '.{epoch:02d}-{val_loss:.2f}.hdf5')
     logs_callback = [
-        #keras.callbacks.ModelCheckpoint(save_file_format, period=1),
         keras.callbacks.ModelCheckpoint(save_file_format, save_freq='epoch'),
         keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)]
 
@@ -305,8 +304,7 @@ def train(csv_path_train, csv_path_validation, images_dir, model_dir, model_name
     # Train the model
     model.fit_generator(
         generator=training_image_gen.flow_from_iterator(paths_train, labels_train, None, batch_size, False,
-                                                        reweight_labels=True, save_to_dir=None,#model_dir,
-                                                        num_target_instances=num_target_instances,
+                                                        reweight_labels=True, save_to_dir=None,
                                                         label_bounds=train_bounds),
         steps_per_epoch=batches_per_epoch_train,
         epochs=num_epochs,
@@ -314,10 +312,8 @@ def train(csv_path_train, csv_path_validation, images_dir, model_dir, model_name
         callbacks=logs_callback,
         validation_data=val_image_generator.flow_from_iterator(paths_val, labels_val, None, batch_size, False,
                                                                reweight_labels=True, save_to_dir=None,
-                                                               num_target_instances=num_target_instances,
                                                                label_bounds=val_bounds),
         validation_steps=batches_per_epoch_validation,
-        # max_queue_size=batches_per_epoch_train,
         workers=num_workers,
         use_multiprocessing=use_multiprocessing,
         initial_epoch=start_epoch)
@@ -349,7 +345,7 @@ def test_keras_model(model, csv_path_test, images_dir, incorrect_pred_dir, vary_
     predictions = model.predict_generator(
         generator=image_generator.flow_from_iterator(paths_test, labels_test, None, batch_size, False,
                                                      reweight_labels=False, save_to_dir=None,
-                                                     num_target_instances=1, label_bounds=bounds_test),
+                                                     label_bounds=bounds_test),
         workers=9,
         use_multiprocessing=False,
         verbose=1)
@@ -370,8 +366,7 @@ def print_test_result(incorrect_pred_dir, image_filepaths, y_true, y_pred):
     """
 
     print('Confusion Matrix ')
-    labels = None#[1, 0] #TODO: proper labels and names
-    print(confusion_matrix(y_true, y_pred, labels))
+    print(confusion_matrix(y_true, y_pred))
 
     class_names = get_class_names()
     class_nums = range(0, len(class_names)+1)
@@ -454,7 +449,7 @@ def main():
 
     # Train model
     num_epochs = 60
-    #model = train(training_csv, validation_csv, images_dir, model_dir, model_name, num_epochs, initial_model_path=saved_model)
+    model = train(training_csv, validation_csv, images_dir, model_dir, model_name, num_epochs, initial_model_path=saved_model)
 
     # Test model
     incorrect_pred_dir = os.path.join(model_dir, 'incorrect_predictions')
@@ -463,9 +458,9 @@ def main():
     incorrect_images_dir = os.path.join(incorrect_pred_dir, 'images')
     if not os.path.exists(incorrect_images_dir):
         os.mkdir(incorrect_images_dir)
+
     csv_path_test = validation_csv
     vary_images = False
-    model = load_model(os.path.join(model_dir, 'saved_models/classifier_base_2xConv_128xDense_4xFilters_Vary.59-0.08.hdf5'))
     test_keras_model(model, csv_path_test, images_dir, incorrect_pred_dir, vary_images, None)
 
 
