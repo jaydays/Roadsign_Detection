@@ -396,7 +396,7 @@ def main():
     # but can explore a heuristic
     # the best model is taken out of the subfolder and renamed 'best_model.hdf5'
 
-    model_name = 'classifier_base_4xConv_64xDense_4xFilters'
+    model_name = 'classifier_base_2xConv_128xDense_4xFilters'
 
     project_dir = os.path.abspath(os.getcwd())
 
