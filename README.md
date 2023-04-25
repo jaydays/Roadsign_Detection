@@ -1,2 +1,2 @@
 # Roadsign_Detection
-Neural network to detect roadsigns
+Program to train a neural network to detect/classify road signs. 
